@@ -1,0 +1,3 @@
+rootProject.name = 'final2constant'
+include 'nice'
+include 'java15bridge'
