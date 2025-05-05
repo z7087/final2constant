@@ -2,6 +2,8 @@ package me.z7087.final2constant;
 
 import org.objectweb.asm.*;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.util.function.Supplier;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -14,6 +16,22 @@ public abstract class ConstantFactory {
     public abstract <T> DynamicConstant<T> ofVolatile(T value);
 
     public abstract <T> Constant<T> ofLazy(Supplier<? extends T> supplier);
+
+    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                         Class<T> recordInterfaceClass,
+                                                         String[] recordArgMethodNames,
+                                                         String[] recordArgMethodTypes
+    ) {
+        return this.ofRecordConstructor(hostClass, recordInterfaceClass, recordArgMethodNames, recordArgMethodTypes, true, false);
+    }
+
+    public abstract <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                         Class<T> recordInterfaceClass,
+                                                         String[] recordArgMethodNames,
+                                                         String[] recordArgMethodTypes,
+                                                         boolean generateToStringHashCodeEquals,
+                                                         boolean generateSetter
+    );
 
     protected static byte[] generateConstantImpl(String className) {
         // no lazy so prob a final field is enough
@@ -399,5 +417,481 @@ public abstract class ConstantFactory {
         }
         cwDynamicConstantImpl.visitEnd();
         return cwDynamicConstantImpl.toByteArray();
+    }
+    
+    protected static <T> byte[] generateRecordImpl(String className,
+                                                   String simpleClassName,
+                                                   Class<T> recordInterfaceClass,
+                                                   String[] recordArgMethodNames,
+                                                   String[] recordArgMethodReturnTypes,
+                                                   boolean generateToStringHashCodeEquals,
+                                                   boolean generateSetter
+    ) {
+        final int recordArgCount = recordArgMethodNames.length;
+        final ClassWriter cwRecordImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final String recordInterfaceClassName = recordInterfaceClass.getName().replace('.', '/');
+        cwRecordImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                null,
+                "java/lang/Object",
+                new String[] {
+                        recordInterfaceClassName
+                });
+        generateRecordImpl_visitFields(cwRecordImpl, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
+        generateRecordImpl_visitInitAndGetConstructorMH(cwRecordImpl, className, recordInterfaceClass, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
+        for (int i = 0; i < recordArgCount; ++i) {
+            final String recordArgMethodName = recordArgMethodNames[i];
+            final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+            generateRecordImpl_visitGetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
+            if (generateSetter)
+                generateRecordImpl_visitSetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
+        }
+        if (generateToStringHashCodeEquals)
+            generateRecordImpl_generateToStringHashCodeEquals(cwRecordImpl, className, simpleClassName, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
+        cwRecordImpl.visitEnd();
+        return cwRecordImpl.toByteArray();
+    }
+
+    private static void generateRecordImpl_visitFields(ClassWriter cwRecordImpl,
+                                                       int recordArgCount,
+                                                       String[] recordArgMethodNames,
+                                                       String[] recordArgMethodReturnTypes) {
+        for (int i = 0; i < recordArgCount; ++i) {
+            final FieldVisitor fvCallSite = cwRecordImpl.visitField(ACC_PRIVATE | ACC_FINAL, recordArgMethodNames[i], recordArgMethodReturnTypes[i], null, null);
+            fvCallSite.visitEnd();
+        }
+    }
+
+    private static <T> void generateRecordImpl_visitInitAndGetConstructorMH(ClassWriter cwRecordImpl,
+                                                                            String className,
+                                                                            Class<T> recordInterfaceClass,
+                                                                            int recordArgCount,
+                                                                            String[] recordArgMethodNames,
+                                                                            String[] recordArgMethodReturnTypes) {
+        final String mergedInitDesc = getMergedInitDesc(recordArgMethodReturnTypes);
+        {
+            final MethodVisitor mvInit = cwRecordImpl.visitMethod(ACC_PUBLIC, "<init>", mergedInitDesc, null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            int varIndex = 1;
+            for (int i = 0; i < recordArgCount; ++i) {
+                final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                mvInit.visitVarInsn(ALOAD, 0);
+                switch (recordArgMethodReturnType) {
+                    case "V":
+                        throw new IllegalArgumentException("Found void in recordArgMethodReturnTypes");
+                    case "Z":
+                    case "C":
+                    case "B":
+                    case "S":
+                    case "I":
+                        mvInit.visitVarInsn(ILOAD, varIndex++);
+                        break;
+                    case "F":
+                        mvInit.visitVarInsn(FLOAD, varIndex++);
+                        break;
+                    case "J":
+                        mvInit.visitVarInsn(LLOAD, varIndex);
+                        varIndex += 2;
+                        break;
+                    case "D":
+                        mvInit.visitVarInsn(DLOAD, varIndex);
+                        varIndex += 2;
+                        break;
+                    default:
+                        if (recordArgMethodReturnType.charAt(0) != 'L')
+                            throw new IllegalArgumentException("Unexpected descriptor: " + recordArgMethodReturnType);
+                        mvInit.visitVarInsn(ALOAD, varIndex++);
+                }
+                mvInit.visitFieldInsn(PUTFIELD, className, recordArgMethodNames[i], recordArgMethodReturnType);
+            }
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(-1, -1);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvConstructorMHGetter = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_STATIC, "getConstructorMH", "(I)Ljava/lang/invoke/MethodHandle;", null, null);
+            mvConstructorMHGetter.visitCode();
+
+            final Handle constructorHandle = new Handle(H_NEWINVOKESPECIAL, className, "<init>", mergedInitDesc, false);
+
+            // return handle.asType(MethodType.methodType(clazz, handle.type()));
+            mvConstructorMHGetter.visitLdcInsn(constructorHandle);
+            mvConstructorMHGetter.visitLdcInsn(Type.getType("L" + recordInterfaceClass.getName().replace('.', '/') + ";"));
+            mvConstructorMHGetter.visitLdcInsn(constructorHandle);
+            mvConstructorMHGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "type", "()Ljava/lang/invoke/MethodType;", false);
+            mvConstructorMHGetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodType", "methodType", "(Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodType;", false);
+            mvConstructorMHGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false);
+
+            mvConstructorMHGetter.visitInsn(ARETURN);
+
+            mvConstructorMHGetter.visitMaxs(3, 1);
+            mvConstructorMHGetter.visitEnd();
+        }
+    }
+
+    private static void generateRecordImpl_visitGetter(ClassWriter cwRecordImpl,
+                                                       String className,
+                                                       String recordArgMethodName,
+                                                       String recordArgMethodReturnType) {
+        final MethodVisitor mvGetter = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, recordArgMethodName, "()" + recordArgMethodReturnType, null, null);
+        mvGetter.visitCode();
+
+        mvGetter.visitVarInsn(ALOAD, 0);
+        mvGetter.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+        switch (recordArgMethodReturnType) {
+            case "Z":
+            case "C":
+            case "B":
+            case "S":
+            case "I":
+                mvGetter.visitInsn(IRETURN);
+                break;
+            case "F":
+                mvGetter.visitInsn(FRETURN);
+                break;
+            case "J":
+                mvGetter.visitInsn(LRETURN);
+                break;
+            case "D":
+                mvGetter.visitInsn(DRETURN);
+                break;
+            default:
+                mvGetter.visitInsn(ARETURN);
+        }
+
+        mvGetter.visitMaxs(-1, 1);
+        mvGetter.visitEnd();
+    }
+
+    private static void generateRecordImpl_visitSetter(ClassWriter cwRecordImpl,
+                                                       String className,
+                                                       String recordArgMethodName,
+                                                       String recordArgMethodReturnType) {
+        final MethodVisitor mvSetter = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, recordArgMethodName, "(" + recordArgMethodReturnType + ")V", null, null);
+        mvSetter.visitCode();
+
+        mvSetter.visitVarInsn(ALOAD, 0);
+        switch (recordArgMethodReturnType) {
+            case "Z":
+            case "C":
+            case "B":
+            case "S":
+            case "I":
+                mvSetter.visitVarInsn(ILOAD, 1);
+                break;
+            case "F":
+                mvSetter.visitVarInsn(FLOAD, 1);
+                break;
+            case "J":
+                mvSetter.visitVarInsn(LLOAD, 1);
+                break;
+            case "D":
+                mvSetter.visitVarInsn(DLOAD, 1);
+                break;
+            default:
+                mvSetter.visitVarInsn(ALOAD, 1);
+        }
+        mvSetter.visitFieldInsn(PUTFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+        mvSetter.visitInsn(RETURN);
+
+        mvSetter.visitMaxs(-1, -1);
+        mvSetter.visitEnd();
+    }
+
+    private static void generateRecordImpl_generateToStringHashCodeEquals(ClassWriter cwRecordImpl,
+                                                                          String className,
+                                                                          String simpleClassName,
+                                                                          int recordArgCount,
+                                                                          String[] recordArgMethodNames,
+                                                                          String[] recordArgMethodReturnTypes) {
+        {
+            final MethodVisitor mvToString = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "toString", "()Ljava/lang/String;", null, null);
+            mvToString.visitCode();
+
+            if (recordArgCount != 0) {
+                // return "SimpleClassName[field0=${field0}, field1=${field1}, ...]";
+                mvToString.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvToString.visitInsn(DUP);
+                mvToString.visitLdcInsn(simpleClassName + "[");
+                mvToString.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "(Ljava/lang/String;)V", false);
+                {
+                    final String recordArgMethodName = recordArgMethodNames[0];
+                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                    mvToString.visitLdcInsn(recordArgMethodName + "=");
+                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                    mvToString.visitVarInsn(ALOAD, 0);
+                    mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    pushToString(mvToString, recordArgMethodReturnType);
+                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                }
+                for (int i = 1; i < recordArgCount; ++i) {
+                    final String recordArgMethodName = recordArgMethodNames[i];
+                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                    mvToString.visitLdcInsn(", " + recordArgMethodName + "=");
+                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                    mvToString.visitVarInsn(ALOAD, 0);
+                    mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    pushToString(mvToString, recordArgMethodReturnType);
+                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                }
+                mvToString.visitLdcInsn("]");
+                mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+            } else {
+                // return "SimpleClassName[]";
+                mvToString.visitLdcInsn(simpleClassName + "[]");
+            }
+            mvToString.visitInsn(ARETURN);
+
+            mvToString.visitMaxs(-1, -1);
+            mvToString.visitEnd();
+        }
+        {
+            final MethodVisitor mvHashCode = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "hashCode", "()I", null, null);
+            mvHashCode.visitCode();
+
+            switch (recordArgCount) {
+                case 0: {
+                    // return 0;
+                    mvHashCode.visitInsn(ICONST_0);
+                    mvHashCode.visitInsn(IRETURN);
+                    break;
+                }
+                case 1: {
+                    // return getHash(this.field0);
+                    final String recordArgMethodName = recordArgMethodNames[0];
+                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                    mvHashCode.visitVarInsn(ALOAD, 0);
+                    mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    pushHashCode(mvHashCode, recordArgMethodReturnType);
+                    mvHashCode.visitInsn(IRETURN);
+                    break;
+                }
+                case 2: {
+                    // int hash = getHash(this.field0);
+                    // return hash * 31 + getHash(this.field1);
+                    {
+                        final String recordArgMethodName = recordArgMethodNames[0];
+                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                        mvHashCode.visitVarInsn(ALOAD, 0);
+                        mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushHashCode(mvHashCode, recordArgMethodReturnType);
+                        mvHashCode.visitVarInsn(ISTORE, 1);
+                    }
+                    {
+                        mvHashCode.visitVarInsn(ILOAD, 1);
+                        mvHashCode.visitIntInsn(BIPUSH, 31);
+                        mvHashCode.visitInsn(IMUL);
+                        final String recordArgMethodName = recordArgMethodNames[1];
+                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[1];
+                        mvHashCode.visitVarInsn(ALOAD, 0);
+                        mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushHashCode(mvHashCode, recordArgMethodReturnType);
+                        mvHashCode.visitInsn(IADD);
+                        mvHashCode.visitInsn(IRETURN);
+                    }
+                    break;
+                }
+                default: {
+                    // int hash = getHash(this.field0);
+                    // for field in fields[1:fields.length-1]
+                    //     hash = hash * 31 + getHash(field);
+                    // return hash * 31 + getHash(this.fieldLast);
+                    {
+                        final String recordArgMethodName = recordArgMethodNames[0];
+                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                        mvHashCode.visitVarInsn(ALOAD, 0);
+                        mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushHashCode(mvHashCode, recordArgMethodReturnType);
+                        mvHashCode.visitVarInsn(ISTORE, 1);
+                    }
+                    int i = 1;
+                    for (int countSub1 = recordArgCount - 1; i < countSub1; ++i) {
+                        mvHashCode.visitVarInsn(ILOAD, 1);
+                        mvHashCode.visitIntInsn(BIPUSH, 31);
+                        mvHashCode.visitInsn(IMUL);
+                        final String recordArgMethodName = recordArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                        mvHashCode.visitVarInsn(ALOAD, 0);
+                        mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushHashCode(mvHashCode, recordArgMethodReturnType);
+                        mvHashCode.visitInsn(IADD);
+                        mvHashCode.visitVarInsn(ISTORE, 1);
+                    }
+                    {
+                        mvHashCode.visitVarInsn(ILOAD, 1);
+                        mvHashCode.visitIntInsn(BIPUSH, 31);
+                        mvHashCode.visitInsn(IMUL);
+                        final String recordArgMethodName = recordArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                        mvHashCode.visitVarInsn(ALOAD, 0);
+                        mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushHashCode(mvHashCode, recordArgMethodReturnType);
+                        mvHashCode.visitInsn(IADD);
+                        mvHashCode.visitInsn(IRETURN);
+                    }
+                    break;
+                }
+            }
+
+            mvHashCode.visitMaxs(-1, -1);
+            mvHashCode.visitEnd();
+        }
+        {
+            final MethodVisitor mvEquals = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "equals", "(Ljava/lang/Object;)Z", null, null);
+            mvEquals.visitCode();
+            Label CmpFailed = new Label();
+            Label FastCmpFailed = new Label();
+
+            // if (this == other) return true;
+            mvEquals.visitVarInsn(ALOAD, 0);
+            mvEquals.visitVarInsn(ALOAD, 1);
+            mvEquals.visitJumpInsn(IF_ACMPNE, FastCmpFailed);
+            mvEquals.visitInsn(ICONST_1);
+            mvEquals.visitInsn(IRETURN);
+            mvEquals.visitLabel(FastCmpFailed);
+
+            // if (!(other instanceof ThisClass)) goto CmpFailed;
+            mvEquals.visitVarInsn(ALOAD, 1);
+            mvEquals.visitTypeInsn(INSTANCEOF, className);
+            mvEquals.visitJumpInsn(IFEQ, CmpFailed);
+
+            // skip compare if no fields
+            if (recordArgCount != 0) {
+                // ThisClass other = (ThisClass) other;
+                mvEquals.visitVarInsn(ALOAD, 1);
+                mvEquals.visitTypeInsn(CHECKCAST, className);
+                mvEquals.visitVarInsn(ASTORE, 2);
+
+                // for field in fields
+                //     if cmp_ne(this.field, other.field)
+                //         goto CmpTailed;
+                for (int i = 0; i < recordArgCount; ++i) {
+                    final String recordArgMethodName = recordArgMethodNames[i];
+                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                    mvEquals.visitVarInsn(ALOAD, 0);
+                    mvEquals.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    mvEquals.visitVarInsn(ALOAD, 2);
+                    mvEquals.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    switch (recordArgMethodReturnType) {
+                        case "Z":
+                        case "C":
+                        case "B":
+                        case "S":
+                        case "I":
+                            mvEquals.visitJumpInsn(IF_ICMPNE, CmpFailed);
+                            break;
+                        case "F":
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "compare", "(FF)I", false);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        case "J":
+                            mvEquals.visitInsn(LCMP);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        case "D":
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "compare", "(DD)I", false);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        default:
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "equals", "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                            mvEquals.visitJumpInsn(IFEQ, CmpFailed);
+                    }
+                }
+            }
+
+            // return true;
+            mvEquals.visitInsn(ICONST_1);
+            mvEquals.visitInsn(IRETURN);
+
+            // CmpTailed:
+            // return false;
+            mvEquals.visitLabel(CmpFailed);
+            mvEquals.visitInsn(ICONST_0);
+            mvEquals.visitInsn(IRETURN);
+
+            mvEquals.visitMaxs(-1, -1);
+            mvEquals.visitEnd();
+        }
+    }
+
+    private static String getMergedInitDesc(String[] recordArgMethodReturnTypes) {
+        int capacity = 3;
+        for (String recordArgMethodReturnType : recordArgMethodReturnTypes)
+            capacity += recordArgMethodReturnType.length();
+        final StringBuilder mergedInitDescBuilder = new StringBuilder(capacity);
+        mergedInitDescBuilder.append("(");
+        for (String recordArgMethodReturnType : recordArgMethodReturnTypes)
+            mergedInitDescBuilder.append(recordArgMethodReturnType);
+        mergedInitDescBuilder.append(")V");
+        return mergedInitDescBuilder.toString();
+    }
+
+    private static void pushToString(final MethodVisitor mv, final String type) {
+        switch (type) {
+            case "Z":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "toString", "(Z)Ljava/lang/String;", false);
+                break;
+            case "C":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Character", "toString", "(C)Ljava/lang/String;", false);
+                break;
+            case "B":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Byte", "toString", "(B)Ljava/lang/String;", false);
+                break;
+            case "S":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Short", "toString", "(S)Ljava/lang/String;", false);
+                break;
+            case "I":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "toString", "(I)Ljava/lang/String;", false);
+                break;
+            case "F":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "toString", "(F)Ljava/lang/String;", false);
+                break;
+            case "J":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false);
+                break;
+            case "D":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "toString", "(D)Ljava/lang/String;", false);
+                break;
+            default:
+                mv.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "toString", "(Ljava/lang/Object;)Ljava/lang/String;", false);
+        }
+    }
+
+    private static void pushHashCode(final MethodVisitor mv, final String type) {
+        switch (type) {
+            case "Z":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "hashCode", "(Z)I", false);
+                break;
+            case "C":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Character", "hashCode", "(C)I", false);
+                break;
+            case "B":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Byte", "hashCode", "(B)I", false);
+                break;
+            case "S":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Short", "hashCode", "(S)I", false);
+                break;
+            case "I":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "hashCode", "(I)I", false);
+                break;
+            case "F":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "hashCode", "(F)I", false);
+                break;
+            case "J":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "hashCode", "(J)I", false);
+                break;
+            case "D":
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "hashCode", "(D)I", false);
+                break;
+            default:
+                mv.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "hashCode", "(Ljava/lang/Object;)I", false);
+        }
     }
 }

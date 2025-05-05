@@ -34,41 +34,52 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
         }
     }
 
-    private final MethodHandle ConstantImplConstructor;
-    private final MethodHandle LazyConstantImplConstructor;
-    private final MethodHandle DynamicConstantImplConstructor;
+    private static final MethodHandle ConstantImplConstructor;
+    private static final MethodHandle LazyConstantImplConstructor;
+    private static final MethodHandle DynamicConstantImplConstructor;
+    private static final boolean valid;
 
-    {
-        if (theUnsafe == null)
-            throw new IllegalStateException("Unsafe instance getting has failed, UnsafeAnonymousConstantFactory cannot be created!");
-        if (MHDefineAnonymousClass == null)
+    static {
+        if (theUnsafe != null && MHDefineAnonymousClass != null) {
+            final String UACFClassName = UnsafeAnonymousConstantFactory.class.getName().replace('.', '/');
+            {
+                try {
+                    Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateConstantImpl(UACFClassName + "$ConstantImpl"), (Object[]) null);
+                    ConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+                try {
+                    Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateLazyConstantImpl(UACFClassName + "$LazyConstantImpl"), (Object[]) null);
+                    LazyConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Supplier.class)).asType(MethodType.methodType(Constant.class, Supplier.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+                try {
+                    Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateDynamicConstantImpl(UACFClassName + "$DynamicConstantImpl"), (Object[]) null);
+                    DynamicConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            valid = true;
+        } else {
+            ConstantImplConstructor = LazyConstantImplConstructor = DynamicConstantImplConstructor = MethodHandles.constant(Object.class, null);
+            valid = false;
+        }
+    }
+
+    public UnsafeAnonymousConstantFactory() {
+        if (!valid) {
+            if (theUnsafe == null)
+                throw new IllegalStateException("Unsafe instance getting has failed, UnsafeAnonymousConstantFactory cannot be created!");
             throw new IllegalStateException("DefineAnonymousClass MethodHandle getting has failed, UnsafeAnonymousConstantFactory cannot be created!");
-        final String UACFClassName = UnsafeAnonymousConstantFactory.class.getName().replace('.', '/');
-        {
-            try {
-                Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateConstantImpl(UACFClassName + "$ConstantImpl"), (Object[]) null);
-                ConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
-            try {
-                Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateLazyConstantImpl(UACFClassName + "$LazyConstantImpl"), (Object[]) null);
-                LazyConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Supplier.class)).asType(MethodType.methodType(Constant.class, Supplier.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
-            try {
-                Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateDynamicConstantImpl(UACFClassName + "$DynamicConstantImpl"), (Object[]) null);
-                DynamicConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
         }
     }
 
@@ -113,6 +124,40 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
         try {
             //noinspection unchecked
             return (Constant<T>) LazyConstantImplConstructor.invokeExact(supplier);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                Class<T> recordInterfaceClass,
+                                                String[] recordArgMethodNames,
+                                                String[] recordArgMethodTypes,
+                                                boolean generateToStringHashCodeEquals,
+                                                boolean generateSetter
+    ) {
+        assert MHDefineAnonymousClass != null;
+        final String simpleClassName = recordInterfaceClass.getSimpleName() + "$RecordImpl";
+        try {
+            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
+                    theUnsafe,
+                    hostClass.lookupClass(),
+                    generateRecordImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
+                            simpleClassName,
+                            recordInterfaceClass,
+                            recordArgMethodNames,
+                            recordArgMethodTypes,
+                            generateToStringHashCodeEquals,
+                            generateSetter
+                    ),
+                    (Object[]) null
+            );
+            final MethodHandle MHGetConstructorMH = hostClass.findStatic(clazz, "getConstructorMH", MethodType.methodType(MethodHandle.class, int.class));
+            return (MethodHandle) MHGetConstructorMH.invokeExact(0);
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {

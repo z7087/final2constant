@@ -5,7 +5,6 @@ import java.lang.reflect.Array;
 import java.util.function.Supplier;
 
 class LookupHiddenConstantFactory extends ConstantFactory {
-    //private static final Object ClassOptionEmptyArray;
     private static final MethodHandle MHDefineHiddenClass;
     static {
         Object ClassOptionEmptyArray;
@@ -33,41 +32,51 @@ class LookupHiddenConstantFactory extends ConstantFactory {
         }
     }
 
-    private final MethodHandle ConstantImplConstructor;
-    private final MethodHandle LazyConstantImplConstructor;
-    private final MethodHandle DynamicConstantImplConstructor;
+    private static final MethodHandle ConstantImplConstructor;
+    private static final MethodHandle LazyConstantImplConstructor;
+    private static final MethodHandle DynamicConstantImplConstructor;
+    private static final boolean valid;
 
-    {
-        if (MHDefineHiddenClass == null)
-            throw new IllegalStateException("DefineHiddenClass MethodHandle getting has failed, LookupHiddenConstantFactory cannot be created!");
-        final String LHCFClassName = LookupHiddenConstantFactory.class.getName().replace('.', '/');
-        {
-            MethodHandles.Lookup lookup = MethodHandles.lookup();
-            try {
-                Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateConstantImpl(LHCFClassName + "$ConstantImpl"), true)).lookupClass();
-                ConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
+    static {
+        if (MHDefineHiddenClass != null) {
+            final String LHCFClassName = LookupHiddenConstantFactory.class.getName().replace('.', '/');
+            {
+                MethodHandles.Lookup lookup = MethodHandles.lookup();
+                try {
+                    Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateConstantImpl(LHCFClassName + "$ConstantImpl"), true)).lookupClass();
+                    ConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+                try {
+                    Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateLazyConstantImpl(LHCFClassName + "$LazyConstantImpl"), true)).lookupClass();
+                    LazyConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, Supplier.class)).asType(MethodType.methodType(Constant.class, Supplier.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+                try {
+                    Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateDynamicConstantImpl(LHCFClassName + "$DynamicConstantImpl"), true)).lookupClass();
+                    DynamicConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                } catch (RuntimeException | Error e) {
+                    throw e;
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
             }
-            try {
-                Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateLazyConstantImpl(LHCFClassName + "$LazyConstantImpl"), true)).lookupClass();
-                LazyConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Supplier.class)).asType(MethodType.methodType(Constant.class, Supplier.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
-            try {
-                Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateDynamicConstantImpl(LHCFClassName + "$DynamicConstantImpl"), true)).lookupClass();
-                DynamicConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
-            } catch (RuntimeException | Error e) {
-                throw e;
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
+            valid = true;
+        } else {
+            ConstantImplConstructor = LazyConstantImplConstructor = DynamicConstantImplConstructor = MethodHandles.constant(Object.class, null);
+            valid = false;
         }
+    }
+
+    public LookupHiddenConstantFactory() {
+        if (!valid)
+            throw new IllegalStateException("DefineHiddenClass MethodHandle getting has failed, LookupHiddenConstantFactory cannot be created!");
     }
 
     @Override
@@ -111,6 +120,39 @@ class LookupHiddenConstantFactory extends ConstantFactory {
         try {
             //noinspection unchecked
             return (Constant<T>) LazyConstantImplConstructor.invokeExact(supplier);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                Class<T> recordInterfaceClass,
+                                                String[] recordArgMethodNames,
+                                                String[] recordArgMethodTypes,
+                                                boolean generateToStringHashCodeEquals,
+                                                boolean generateSetter
+    ) {
+        assert MHDefineHiddenClass != null;
+        final String simpleClassName = recordInterfaceClass.getSimpleName() + "$RecordImpl";
+        try {
+            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(
+                    hostClass,
+                    generateRecordImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
+                            simpleClassName,
+                            recordInterfaceClass,
+                            recordArgMethodNames,
+                            recordArgMethodTypes,
+                            generateToStringHashCodeEquals,
+                            generateSetter
+                    ),
+                    true
+            )).lookupClass();
+            final MethodHandle MHGetConstructorMH = hostClass.findStatic(clazz, "getConstructorMH", MethodType.methodType(MethodHandle.class, int.class));
+            return (MethodHandle) MHGetConstructorMH.invokeExact(0);
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
