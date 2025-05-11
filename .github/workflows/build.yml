@@ -54,28 +54,3 @@ jobs:
         with:
           name: final2constant-all
           path: build/libs/final2constant-all.jar
-  auto-release:
-    runs-on: ubuntu-latest
-    needs: [build]
-
-    steps:
-      - name: Download Release Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: final2constant
-
-      - name: Download Release Artifact fatjar
-        uses: actions/download-artifact@v4
-        with:
-          name: final2constant-all
-
-      - name: Automatic Releases
-        uses: marvinpinto/action-automatic-releases@latest
-        id: "automatic_releases"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest-snapshot"
-          prerelease: true
-          files: |
-            final2constant.jar
-            final2constant-all.jar
