@@ -43,14 +43,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: final2constant
-          path: build/libs/final2constant.jar
-
-      - name: Build fatjar with Gradle Wrapper
-        run: ./gradlew shadowJar
-
-      - name: Upload fatjar artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: final2constant-all
-          path: build/libs/final2constant-all.jar
+          name: artifact
+          path: build/libs/*.jar
