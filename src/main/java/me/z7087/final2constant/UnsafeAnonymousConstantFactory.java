@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 class UnsafeAnonymousConstantFactory extends ConstantFactory {
+    private static final String[] EMPTY_STRING_ARRAY = new String[0];
+
     private static final Unsafe theUnsafe;
     private static final MethodHandle MHDefineAnonymousClass;
     static {
@@ -134,12 +136,18 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
     @Override
     public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
                                                 Class<T> recordInterfaceClass,
-                                                String[] recordArgMethodNames,
-                                                String[] recordArgMethodTypes,
+                                                String[] recordImmutableArgMethodNames,
+                                                String[] recordImmutableArgMethodTypes,
+                                                String[] recordMutableArgMethodNames,
+                                                String[] recordMutableArgMethodTypes,
                                                 boolean generateToStringHashCodeEquals,
-                                                boolean generateSetter
+                                                boolean generateSetterForFinalFields
     ) {
         assert MHDefineAnonymousClass != null;
+        if (recordImmutableArgMethodNames == null) recordImmutableArgMethodNames = EMPTY_STRING_ARRAY;
+        if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
+        if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
+        if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
         final String simpleClassName = recordInterfaceClass.getSimpleName() + "$RecordImpl";
         try {
             final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
@@ -149,10 +157,12 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
                             hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
                             simpleClassName,
                             recordInterfaceClass,
-                            recordArgMethodNames,
-                            recordArgMethodTypes,
+                            recordImmutableArgMethodNames,
+                            recordImmutableArgMethodTypes,
+                            recordMutableArgMethodNames,
+                            recordMutableArgMethodTypes,
                             generateToStringHashCodeEquals,
-                            generateSetter
+                            generateSetterForFinalFields
                     ),
                     (Object[]) null
             );

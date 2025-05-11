@@ -18,19 +18,32 @@ public abstract class ConstantFactory {
     public abstract <T> Constant<T> ofLazy(Supplier<? extends T> supplier);
 
     public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                         Class<T> recordInterfaceClass,
-                                                         String[] recordArgMethodNames,
-                                                         String[] recordArgMethodTypes
+                                                Class<T> recordInterfaceClass,
+                                                String[] recordImmutableArgMethodNames,
+                                                String[] recordImmutableArgMethodTypes
     ) {
-        return this.ofRecordConstructor(hostClass, recordInterfaceClass, recordArgMethodNames, recordArgMethodTypes, true, false);
+        return this.ofRecordConstructor(hostClass, recordInterfaceClass, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, true, false);
+    }
+
+    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                         Class<T> recordInterfaceClass,
+                                                         String[] recordImmutableArgMethodNames,
+                                                         String[] recordImmutableArgMethodTypes,
+                                                         boolean generateToStringHashCodeEquals,
+                                                         boolean generateSetterForFinalFields
+    ) {
+
+        return this.ofRecordConstructor(hostClass, recordInterfaceClass, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, null, null, generateToStringHashCodeEquals, generateSetterForFinalFields);
     }
 
     public abstract <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
                                                          Class<T> recordInterfaceClass,
-                                                         String[] recordArgMethodNames,
-                                                         String[] recordArgMethodTypes,
+                                                         String[] recordImmutableArgMethodNames,
+                                                         String[] recordImmutableArgMethodTypes,
+                                                         String[] recordMutableArgMethodNames,
+                                                         String[] recordMutableArgMethodTypes,
                                                          boolean generateToStringHashCodeEquals,
-                                                         boolean generateSetter
+                                                         boolean generateSetterForFinalFields
     );
 
     protected static byte[] generateConstantImpl(String className) {
@@ -422,12 +435,15 @@ public abstract class ConstantFactory {
     protected static <T> byte[] generateRecordImpl(String className,
                                                    String simpleClassName,
                                                    Class<T> recordInterfaceClass,
-                                                   String[] recordArgMethodNames,
-                                                   String[] recordArgMethodReturnTypes,
+                                                   String[] recordImmutableArgMethodNames,
+                                                   String[] recordImmutableArgMethodReturnTypes,
+                                                   String[] recordMutableArgMethodNames,
+                                                   String[] recordMutableArgMethodReturnTypes,
                                                    boolean generateToStringHashCodeEquals,
-                                                   boolean generateSetter
+                                                   boolean generateSetterForFinalFields
     ) {
-        final int recordArgCount = recordArgMethodNames.length;
+        final int recordImmutableArgCount = recordImmutableArgMethodNames.length;
+        final int recordMutableArgCount = recordMutableArgMethodNames.length;
         final ClassWriter cwRecordImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
         final String recordInterfaceClassName = recordInterfaceClass.getName().replace('.', '/');
         cwRecordImpl.visit(V1_8,
@@ -438,27 +454,58 @@ public abstract class ConstantFactory {
                 new String[] {
                         recordInterfaceClassName
                 });
-        generateRecordImpl_visitFields(cwRecordImpl, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
-        generateRecordImpl_visitInitAndGetConstructorMH(cwRecordImpl, className, recordInterfaceClass, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
-        for (int i = 0; i < recordArgCount; ++i) {
-            final String recordArgMethodName = recordArgMethodNames[i];
-            final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+        generateRecordImpl_visitImmutableFields(cwRecordImpl, recordImmutableArgCount, recordImmutableArgMethodNames, recordImmutableArgMethodReturnTypes);
+        generateRecordImpl_visitMutableFields(cwRecordImpl, recordMutableArgCount, recordMutableArgMethodNames, recordMutableArgMethodReturnTypes);
+        // no need to init mutable fields in the constructor
+        generateRecordImpl_visitInitAndGetConstructorMH(
+                cwRecordImpl,
+                className,
+                recordInterfaceClass,
+                recordImmutableArgCount,
+                recordImmutableArgMethodNames,
+                recordImmutableArgMethodReturnTypes
+        );
+        for (int i = 0; i < recordImmutableArgCount; ++i) {
+            final String recordArgMethodName = recordImmutableArgMethodNames[i];
+            final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
             generateRecordImpl_visitGetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
-            if (generateSetter)
+            if (generateSetterForFinalFields)
                 generateRecordImpl_visitSetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
         }
+        for (int i = 0; i < recordMutableArgCount; ++i) {
+            final String recordArgMethodName = recordMutableArgMethodNames[i];
+            final String recordArgMethodReturnType = recordMutableArgMethodReturnTypes[i];
+            generateRecordImpl_visitGetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
+            generateRecordImpl_visitSetter(cwRecordImpl, className, recordArgMethodName, recordArgMethodReturnType);
+        }
         if (generateToStringHashCodeEquals)
-            generateRecordImpl_generateToStringHashCodeEquals(cwRecordImpl, className, simpleClassName, recordArgCount, recordArgMethodNames, recordArgMethodReturnTypes);
+            generateRecordImpl_generateToStringHashCodeEquals(
+                    cwRecordImpl,
+                    className,
+                    simpleClassName,
+                    recordImmutableArgCount, recordImmutableArgMethodNames, recordImmutableArgMethodReturnTypes,
+                    recordMutableArgCount, recordMutableArgMethodNames, recordMutableArgMethodReturnTypes
+            );
         cwRecordImpl.visitEnd();
         return cwRecordImpl.toByteArray();
     }
 
-    private static void generateRecordImpl_visitFields(ClassWriter cwRecordImpl,
-                                                       int recordArgCount,
-                                                       String[] recordArgMethodNames,
-                                                       String[] recordArgMethodReturnTypes) {
-        for (int i = 0; i < recordArgCount; ++i) {
-            final FieldVisitor fvCallSite = cwRecordImpl.visitField(ACC_PRIVATE | ACC_FINAL, recordArgMethodNames[i], recordArgMethodReturnTypes[i], null, null);
+    private static void generateRecordImpl_visitImmutableFields(ClassWriter cwRecordImpl,
+                                                                int recordImmutableArgCount,
+                                                                String[] recordImmutableArgMethodNames,
+                                                                String[] recordImmutableArgMethodReturnTypes) {
+        for (int i = 0; i < recordImmutableArgCount; ++i) {
+            final FieldVisitor fvCallSite = cwRecordImpl.visitField(ACC_PRIVATE | ACC_FINAL, recordImmutableArgMethodNames[i], recordImmutableArgMethodReturnTypes[i], null, null);
+            fvCallSite.visitEnd();
+        }
+    }
+
+    private static void generateRecordImpl_visitMutableFields(ClassWriter cwRecordImpl,
+                                                              int recordMutableArgCount,
+                                                              String[] recordMutableArgMethodNames,
+                                                              String[] recordMutableArgMethodReturnTypes) {
+        for (int i = 0; i < recordMutableArgCount; ++i) {
+            final FieldVisitor fvCallSite = cwRecordImpl.visitField(ACC_PRIVATE, recordMutableArgMethodNames[i], recordMutableArgMethodReturnTypes[i], null, null);
             fvCallSite.visitEnd();
         }
     }
@@ -466,10 +513,11 @@ public abstract class ConstantFactory {
     private static <T> void generateRecordImpl_visitInitAndGetConstructorMH(ClassWriter cwRecordImpl,
                                                                             String className,
                                                                             Class<T> recordInterfaceClass,
-                                                                            int recordArgCount,
-                                                                            String[] recordArgMethodNames,
-                                                                            String[] recordArgMethodReturnTypes) {
-        final String mergedInitDesc = getMergedInitDesc(recordArgMethodReturnTypes);
+                                                                            int recordImmutableArgCount,
+                                                                            String[] recordImmutableArgMethodNames,
+                                                                            String[] recordImmutableArgMethodReturnTypes
+    ) {
+        final String mergedInitDesc = getMergedInitDesc(recordImmutableArgMethodReturnTypes);
         {
             final MethodVisitor mvInit = cwRecordImpl.visitMethod(ACC_PUBLIC, "<init>", mergedInitDesc, null, null);
             mvInit.visitCode();
@@ -478,8 +526,8 @@ public abstract class ConstantFactory {
             mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
 
             int varIndex = 1;
-            for (int i = 0; i < recordArgCount; ++i) {
-                final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+            for (int i = 0; i < recordImmutableArgCount; ++i) {
+                final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
                 mvInit.visitVarInsn(ALOAD, 0);
                 switch (recordArgMethodReturnType) {
                     case "V":
@@ -507,7 +555,7 @@ public abstract class ConstantFactory {
                             throw new IllegalArgumentException("Unexpected descriptor: " + recordArgMethodReturnType);
                         mvInit.visitVarInsn(ALOAD, varIndex++);
                 }
-                mvInit.visitFieldInsn(PUTFIELD, className, recordArgMethodNames[i], recordArgMethodReturnType);
+                mvInit.visitFieldInsn(PUTFIELD, className, recordImmutableArgMethodNames[i], recordArgMethodReturnType);
             }
 
             mvInit.visitInsn(RETURN);
@@ -607,39 +655,55 @@ public abstract class ConstantFactory {
     private static void generateRecordImpl_generateToStringHashCodeEquals(ClassWriter cwRecordImpl,
                                                                           String className,
                                                                           String simpleClassName,
-                                                                          int recordArgCount,
-                                                                          String[] recordArgMethodNames,
-                                                                          String[] recordArgMethodReturnTypes) {
+                                                                          int recordImmutableArgCount,
+                                                                          String[] recordImmutableArgMethodNames,
+                                                                          String[] recordImmutableArgMethodReturnTypes,
+                                                                          int recordMutableArgCount,
+                                                                          String[] recordMutableArgMethodNames,
+                                                                          String[] recordMutableArgMethodReturnTypes) {
         {
+            // only use immutable fields here
             final MethodVisitor mvToString = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "toString", "()Ljava/lang/String;", null, null);
             mvToString.visitCode();
 
-            if (recordArgCount != 0) {
+            if (recordImmutableArgCount != 0
+//                    || recordMutableArgCount != 0
+            ) {
                 // return "SimpleClassName[field0=${field0}, field1=${field1}, ...]";
                 mvToString.visitTypeInsn(NEW, "java/lang/StringBuilder");
                 mvToString.visitInsn(DUP);
                 mvToString.visitLdcInsn(simpleClassName + "[");
                 mvToString.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "(Ljava/lang/String;)V", false);
-                {
-                    final String recordArgMethodName = recordArgMethodNames[0];
-                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
-                    mvToString.visitLdcInsn(recordArgMethodName + "=");
-                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
-                    mvToString.visitVarInsn(ALOAD, 0);
-                    mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
-                    pushToString(mvToString, recordArgMethodReturnType);
-                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                boolean isFirst = true;
+                //noinspection ConstantValue
+                if (recordImmutableArgCount != 0) {
+                    for (int i = 0; i < recordImmutableArgCount; ++i) {
+                        final String recordArgMethodName = recordImmutableArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
+                        mvToString.visitLdcInsn((isFirst ? "" : ", ") + recordArgMethodName + "=");
+                        isFirst = false;
+                        mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                        mvToString.visitVarInsn(ALOAD, 0);
+                        mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushToString(mvToString, recordArgMethodReturnType);
+                        mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                    }
                 }
-                for (int i = 1; i < recordArgCount; ++i) {
-                    final String recordArgMethodName = recordArgMethodNames[i];
-                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
-                    mvToString.visitLdcInsn(", " + recordArgMethodName + "=");
-                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
-                    mvToString.visitVarInsn(ALOAD, 0);
-                    mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
-                    pushToString(mvToString, recordArgMethodReturnType);
-                    mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                /*
+                if (recordMutableArgCount != 0) {
+                    for (int i = 0; i < recordMutableArgCount; ++i) {
+                        final String recordArgMethodName = recordMutableArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordMutableArgMethodReturnTypes[i];
+                        mvToString.visitLdcInsn((isFirst ? "" : ", ") + recordArgMethodName + "=");
+                        isFirst = false;
+                        mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                        mvToString.visitVarInsn(ALOAD, 0);
+                        mvToString.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                        pushToString(mvToString, recordArgMethodReturnType);
+                        mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                    }
                 }
+                */
                 mvToString.visitLdcInsn("]");
                 mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
                 mvToString.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
@@ -653,10 +717,11 @@ public abstract class ConstantFactory {
             mvToString.visitEnd();
         }
         {
+            // only use immutable fields here
             final MethodVisitor mvHashCode = cwRecordImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "hashCode", "()I", null, null);
             mvHashCode.visitCode();
 
-            switch (recordArgCount) {
+            switch (recordImmutableArgCount) {
                 case 0: {
                     // return 0;
                     mvHashCode.visitInsn(ICONST_0);
@@ -665,8 +730,8 @@ public abstract class ConstantFactory {
                 }
                 case 1: {
                     // return getHash(this.field0);
-                    final String recordArgMethodName = recordArgMethodNames[0];
-                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                    final String recordArgMethodName = recordImmutableArgMethodNames[0];
+                    final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[0];
                     mvHashCode.visitVarInsn(ALOAD, 0);
                     mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                     pushHashCode(mvHashCode, recordArgMethodReturnType);
@@ -677,8 +742,8 @@ public abstract class ConstantFactory {
                     // int hash = getHash(this.field0);
                     // return hash * 31 + getHash(this.field1);
                     {
-                        final String recordArgMethodName = recordArgMethodNames[0];
-                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                        final String recordArgMethodName = recordImmutableArgMethodNames[0];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[0];
                         mvHashCode.visitVarInsn(ALOAD, 0);
                         mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                         pushHashCode(mvHashCode, recordArgMethodReturnType);
@@ -688,8 +753,8 @@ public abstract class ConstantFactory {
                         mvHashCode.visitVarInsn(ILOAD, 1);
                         mvHashCode.visitIntInsn(BIPUSH, 31);
                         mvHashCode.visitInsn(IMUL);
-                        final String recordArgMethodName = recordArgMethodNames[1];
-                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[1];
+                        final String recordArgMethodName = recordImmutableArgMethodNames[1];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[1];
                         mvHashCode.visitVarInsn(ALOAD, 0);
                         mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                         pushHashCode(mvHashCode, recordArgMethodReturnType);
@@ -704,20 +769,20 @@ public abstract class ConstantFactory {
                     //     hash = hash * 31 + getHash(field);
                     // return hash * 31 + getHash(this.fieldLast);
                     {
-                        final String recordArgMethodName = recordArgMethodNames[0];
-                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[0];
+                        final String recordArgMethodName = recordImmutableArgMethodNames[0];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[0];
                         mvHashCode.visitVarInsn(ALOAD, 0);
                         mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                         pushHashCode(mvHashCode, recordArgMethodReturnType);
                         mvHashCode.visitVarInsn(ISTORE, 1);
                     }
                     int i = 1;
-                    for (int countSub1 = recordArgCount - 1; i < countSub1; ++i) {
+                    for (int countSub1 = recordImmutableArgCount - 1; i < countSub1; ++i) {
                         mvHashCode.visitVarInsn(ILOAD, 1);
                         mvHashCode.visitIntInsn(BIPUSH, 31);
                         mvHashCode.visitInsn(IMUL);
-                        final String recordArgMethodName = recordArgMethodNames[i];
-                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                        final String recordArgMethodName = recordImmutableArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
                         mvHashCode.visitVarInsn(ALOAD, 0);
                         mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                         pushHashCode(mvHashCode, recordArgMethodReturnType);
@@ -728,8 +793,8 @@ public abstract class ConstantFactory {
                         mvHashCode.visitVarInsn(ILOAD, 1);
                         mvHashCode.visitIntInsn(BIPUSH, 31);
                         mvHashCode.visitInsn(IMUL);
-                        final String recordArgMethodName = recordArgMethodNames[i];
-                        final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                        final String recordArgMethodName = recordImmutableArgMethodNames[i];
+                        final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
                         mvHashCode.visitVarInsn(ALOAD, 0);
                         mvHashCode.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                         pushHashCode(mvHashCode, recordArgMethodReturnType);
@@ -763,7 +828,7 @@ public abstract class ConstantFactory {
             mvEquals.visitJumpInsn(IFEQ, CmpFailed);
 
             // skip compare if no fields
-            if (recordArgCount != 0) {
+            if (recordImmutableArgCount != 0 || recordMutableArgCount != 0) {
                 // ThisClass other = (ThisClass) other;
                 mvEquals.visitVarInsn(ALOAD, 1);
                 mvEquals.visitTypeInsn(CHECKCAST, className);
@@ -772,9 +837,41 @@ public abstract class ConstantFactory {
                 // for field in fields
                 //     if cmp_ne(this.field, other.field)
                 //         goto CmpTailed;
-                for (int i = 0; i < recordArgCount; ++i) {
-                    final String recordArgMethodName = recordArgMethodNames[i];
-                    final String recordArgMethodReturnType = recordArgMethodReturnTypes[i];
+                for (int i = 0; i < recordImmutableArgCount; ++i) {
+                    final String recordArgMethodName = recordImmutableArgMethodNames[i];
+                    final String recordArgMethodReturnType = recordImmutableArgMethodReturnTypes[i];
+                    mvEquals.visitVarInsn(ALOAD, 0);
+                    mvEquals.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    mvEquals.visitVarInsn(ALOAD, 2);
+                    mvEquals.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
+                    switch (recordArgMethodReturnType) {
+                        case "Z":
+                        case "C":
+                        case "B":
+                        case "S":
+                        case "I":
+                            mvEquals.visitJumpInsn(IF_ICMPNE, CmpFailed);
+                            break;
+                        case "F":
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "compare", "(FF)I", false);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        case "J":
+                            mvEquals.visitInsn(LCMP);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        case "D":
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "compare", "(DD)I", false);
+                            mvEquals.visitJumpInsn(IFNE, CmpFailed);
+                            break;
+                        default:
+                            mvEquals.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "equals", "(Ljava/lang/Object;Ljava/lang/Object;)Z", false);
+                            mvEquals.visitJumpInsn(IFEQ, CmpFailed);
+                    }
+                }
+                for (int i = 0; i < recordMutableArgCount; ++i) {
+                    final String recordArgMethodName = recordMutableArgMethodNames[i];
+                    final String recordArgMethodReturnType = recordMutableArgMethodReturnTypes[i];
                     mvEquals.visitVarInsn(ALOAD, 0);
                     mvEquals.visitFieldInsn(GETFIELD, className, recordArgMethodName, recordArgMethodReturnType);
                     mvEquals.visitVarInsn(ALOAD, 2);

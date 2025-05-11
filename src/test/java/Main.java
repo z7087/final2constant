@@ -40,17 +40,21 @@ public class Main {
                     TestRecordInterface.class,
                     new String[] {
                             "int32",
-                            "int64",
-                            "tri"
+                            "int64"
                     },
                     new String[] {
                             "I",
-                            "J",
+                            "J"
+                    },
+                    new String[] {
+                            "tri"
+                    },
+                    new String[] {
                             "L" + TestRecordInterface.class.getName().replace('.', '/') + ";"
                     },
                     true,
                     true);
-            TestRecordInterface tri = (TestRecordInterface) triConstructor.invokeExact(1, 5L, (TestRecordInterface) null);
+            TestRecordInterface tri = (TestRecordInterface) triConstructor.invokeExact(1, 5L);
             System.out.println(tri.int32());
             System.out.println(tri.int64());
             System.out.println(tri.tri());
@@ -58,7 +62,7 @@ public class Main {
                 System.out.println("record final setter start");
                 tri.int32(1999);
                 tri.int64(2888L);
-                tri.tri((TestRecordInterface) triConstructor.invokeExact(1, 5L, (TestRecordInterface) null));
+                tri.tri((TestRecordInterface) triConstructor.invokeExact(1, 5L));
                 System.out.println(tri.int32());
                 System.out.println(tri.int64());
                 System.out.println(tri.tri());
