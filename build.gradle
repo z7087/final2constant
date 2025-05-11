@@ -37,6 +37,7 @@ java {
 }
 
 tasks.shadowJar {
+    mustRunAfter jar
     archiveClassifier = ''
     minimize()
     relocate("org.objectweb.asm", "me.z7087.final2constant.libs.org.objectweb.asm")
