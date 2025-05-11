@@ -4,7 +4,6 @@ plugins {
 }
 
 group = 'me.z7087.final2constant'
-version = '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
