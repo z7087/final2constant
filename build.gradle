@@ -37,15 +37,15 @@ java {
 }
 
 tasks.shadowJar {
-    archiveClassifier = 'all'
+    archiveClassifier = ''
     minimize()
     relocate("org.objectweb.asm", "me.z7087.final2constant.libs.org.objectweb.asm")
 }
 
 publishing {
     publications {
-        mavenJava(MavenPublication) {
-            from components.java
+        shadow(MavenPublication) {
+            from components.shadow
         }
     }
 }
