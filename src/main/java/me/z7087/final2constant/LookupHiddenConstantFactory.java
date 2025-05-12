@@ -8,8 +8,10 @@ class LookupHiddenConstantFactory extends ConstantFactory {
     private static final String[] EMPTY_STRING_ARRAY = new String[0];
 
     private static final MethodHandle MHDefineHiddenClass;
+    private static final MethodHandle MHDefineHiddenClassNest;
     static {
-        Object ClassOptionEmptyArray;
+        final Object ClassOptionEmptyArray;
+        final Object ClassOptionNestArray;
         {
             Class<?> ClassOptionClass;
             try {
@@ -17,7 +19,14 @@ class LookupHiddenConstantFactory extends ConstantFactory {
             } catch (ClassNotFoundException ignored) {
                 ClassOptionClass = null;
             }
-            ClassOptionEmptyArray = (ClassOptionClass != null) ? Array.newInstance(ClassOptionClass, 0) : null;
+            if (ClassOptionClass != null) {
+                ClassOptionEmptyArray = Array.newInstance(ClassOptionClass, 0);
+                ClassOptionNestArray = Array.newInstance(ClassOptionClass, 1);
+                Array.set(ClassOptionNestArray, 0, ClassOptionClass.getEnumConstants()[0]);
+            } else {
+                ClassOptionEmptyArray = null;
+                ClassOptionNestArray = null;
+            }
         }
         if (ClassOptionEmptyArray != null) {
             MethodHandle _MHDefineHiddenClass;
@@ -31,6 +40,19 @@ class LookupHiddenConstantFactory extends ConstantFactory {
             MHDefineHiddenClass = _MHDefineHiddenClass;
         } else {
             MHDefineHiddenClass = null;
+        }
+        if (ClassOptionNestArray != null) {
+            MethodHandle _MHDefineHiddenClassNest;
+            try {
+                //noinspection JavaLangInvokeHandleSignature
+                _MHDefineHiddenClassNest = MethodHandles.lookup().findVirtual(MethodHandles.Lookup.class, "defineHiddenClass", MethodType.methodType(MethodHandles.Lookup.class, byte[].class, boolean.class, ClassOptionNestArray.getClass()));
+                _MHDefineHiddenClassNest = MethodHandles.insertArguments(_MHDefineHiddenClassNest, 3, ClassOptionNestArray);
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                _MHDefineHiddenClassNest = null;
+            }
+            MHDefineHiddenClassNest = _MHDefineHiddenClassNest;
+        } else {
+            MHDefineHiddenClassNest = null;
         }
     }
 
@@ -131,7 +153,8 @@ class LookupHiddenConstantFactory extends ConstantFactory {
 
     @Override
     public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                Class<T> recordInterfaceClass,
+                                                Class<T> recordAbstractOrInterfaceClass,
+                                                boolean useInterface,
                                                 String[] recordImmutableArgMethodNames,
                                                 String[] recordImmutableArgMethodTypes,
                                                 String[] recordMutableArgMethodNames,
@@ -139,19 +162,20 @@ class LookupHiddenConstantFactory extends ConstantFactory {
                                                 boolean generateToStringHashCodeEquals,
                                                 boolean generateSetterForFinalFields
     ) {
-        assert MHDefineHiddenClass != null;
+        assert MHDefineHiddenClassNest != null;
         if (recordImmutableArgMethodNames == null) recordImmutableArgMethodNames = EMPTY_STRING_ARRAY;
         if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
         if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
         if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        final String simpleClassName = recordInterfaceClass.getSimpleName() + "$RecordImpl";
+        final String simpleClassName = recordAbstractOrInterfaceClass.getSimpleName() + "$RecordImpl";
         try {
-            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(
+            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
                     hostClass,
                     generateRecordImpl(
                             hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
                             simpleClassName,
-                            recordInterfaceClass,
+                            recordAbstractOrInterfaceClass,
+                            useInterface,
                             recordImmutableArgMethodNames,
                             recordImmutableArgMethodTypes,
                             recordMutableArgMethodNames,

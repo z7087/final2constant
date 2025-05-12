@@ -33,11 +33,12 @@ public abstract class ConstantFactory {
                                                          boolean generateSetterForFinalFields
     ) {
 
-        return this.ofRecordConstructor(hostClass, recordInterfaceClass, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, null, null, generateToStringHashCodeEquals, generateSetterForFinalFields);
+        return this.ofRecordConstructor(hostClass, recordInterfaceClass, true, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, null, null, generateToStringHashCodeEquals, generateSetterForFinalFields);
     }
 
     public abstract <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                         Class<T> recordInterfaceClass,
+                                                         Class<T> recordAbstractOrInterfaceClass,
+                                                         boolean useInterface,
                                                          String[] recordImmutableArgMethodNames,
                                                          String[] recordImmutableArgMethodTypes,
                                                          String[] recordMutableArgMethodNames,
@@ -434,7 +435,8 @@ public abstract class ConstantFactory {
     
     protected static <T> byte[] generateRecordImpl(String className,
                                                    String simpleClassName,
-                                                   Class<T> recordInterfaceClass,
+                                                   Class<T> recordAbstractOrInterfaceClass,
+                                                   boolean useInterface,
                                                    String[] recordImmutableArgMethodNames,
                                                    String[] recordImmutableArgMethodReturnTypes,
                                                    String[] recordMutableArgMethodNames,
@@ -445,22 +447,21 @@ public abstract class ConstantFactory {
         final int recordImmutableArgCount = recordImmutableArgMethodNames.length;
         final int recordMutableArgCount = recordMutableArgMethodNames.length;
         final ClassWriter cwRecordImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        final String recordInterfaceClassName = recordInterfaceClass.getName().replace('.', '/');
+        final String recordAbstractOrInterfaceClassName = recordAbstractOrInterfaceClass.getName().replace('.', '/');
         cwRecordImpl.visit(V1_8,
                 ACC_PUBLIC | ACC_FINAL,
                 className,
                 null,
-                "java/lang/Object",
-                new String[] {
-                        recordInterfaceClassName
-                });
+                useInterface ? "java/lang/Object" : recordAbstractOrInterfaceClassName,
+                useInterface ? new String[] { recordAbstractOrInterfaceClassName } : null);
         generateRecordImpl_visitImmutableFields(cwRecordImpl, recordImmutableArgCount, recordImmutableArgMethodNames, recordImmutableArgMethodReturnTypes);
         generateRecordImpl_visitMutableFields(cwRecordImpl, recordMutableArgCount, recordMutableArgMethodNames, recordMutableArgMethodReturnTypes);
         // no need to init mutable fields in the constructor
         generateRecordImpl_visitInitAndGetConstructorMH(
                 cwRecordImpl,
                 className,
-                recordInterfaceClass,
+                recordAbstractOrInterfaceClass,
+                useInterface,
                 recordImmutableArgCount,
                 recordImmutableArgMethodNames,
                 recordImmutableArgMethodReturnTypes
@@ -512,7 +513,8 @@ public abstract class ConstantFactory {
 
     private static <T> void generateRecordImpl_visitInitAndGetConstructorMH(ClassWriter cwRecordImpl,
                                                                             String className,
-                                                                            Class<T> recordInterfaceClass,
+                                                                            Class<T> recordAbstractOrInterfaceClass,
+                                                                            boolean useInterface,
                                                                             int recordImmutableArgCount,
                                                                             String[] recordImmutableArgMethodNames,
                                                                             String[] recordImmutableArgMethodReturnTypes
@@ -523,7 +525,16 @@ public abstract class ConstantFactory {
             mvInit.visitCode();
 
             mvInit.visitVarInsn(ALOAD, 0);
-            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+            mvInit.visitMethodInsn(
+                    INVOKESPECIAL,
+                    useInterface
+                            ? "java/lang/Object"
+                            : recordAbstractOrInterfaceClass.getName().replace('.', '/')
+                    ,
+                    "<init>",
+                    "()V",
+                    false
+            );
 
             int varIndex = 1;
             for (int i = 0; i < recordImmutableArgCount; ++i) {
@@ -570,7 +581,7 @@ public abstract class ConstantFactory {
 
             // return handle.asType(MethodType.methodType(clazz, handle.type()));
             mvConstructorMHGetter.visitLdcInsn(constructorHandle);
-            mvConstructorMHGetter.visitLdcInsn(Type.getType("L" + recordInterfaceClass.getName().replace('.', '/') + ";"));
+            mvConstructorMHGetter.visitLdcInsn(Type.getType(recordAbstractOrInterfaceClass));
             mvConstructorMHGetter.visitLdcInsn(constructorHandle);
             mvConstructorMHGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "type", "()Ljava/lang/invoke/MethodType;", false);
             mvConstructorMHGetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodType", "methodType", "(Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodType;", false);

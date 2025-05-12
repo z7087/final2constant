@@ -34,10 +34,11 @@ public class Main {
             System.out.println("lazy after");
         }
         {
-            System.out.println("record start");
+            System.out.println("record interface start");
             MethodHandle triConstructor = Constant.factory.ofRecordConstructor(
                     MethodHandles.lookup(),
                     TestRecordInterface.class,
+                    true,
                     new String[] {
                             "int32",
                             "int64"
@@ -59,7 +60,7 @@ public class Main {
             System.out.println(tri.int64());
             System.out.println(tri.tri());
             if (TEST_FINAL_SETTER_IN_RECORD) {
-                System.out.println("record final setter start");
+                System.out.println("record interface final setter start");
                 tri.int32(1999);
                 tri.int64(2888L);
                 tri.tri((TestRecordInterface) triConstructor.invokeExact(1, 5L));
@@ -67,9 +68,48 @@ public class Main {
                 System.out.println(tri.int64());
                 System.out.println(tri.tri());
                 System.out.println(tri);
-                System.out.println("record final setter after");
+                System.out.println("record interface final setter after");
             }
-            System.out.println("record after");
+            System.out.println("record interface after");
+        }
+        {
+            System.out.println("record abstract start");
+            MethodHandle traConstructor = Constant.factory.ofRecordConstructor(
+                    TestRecordAbstract.getLookup(),
+                    TestRecordAbstract.class,
+                    false,
+                    new String[] {
+                            "int32",
+                            "int64"
+                    },
+                    new String[] {
+                            "I",
+                            "J"
+                    },
+                    new String[] {
+                            "tra"
+                    },
+                    new String[] {
+                            "L" + TestRecordAbstract.class.getName().replace('.', '/') + ";"
+                    },
+                    true,
+                    true);
+            TestRecordAbstract tra = (TestRecordAbstract) traConstructor.invokeExact(1, 5L);
+            System.out.println(tra.int32());
+            System.out.println(tra.int64());
+            System.out.println(tra.tra());
+            if (TEST_FINAL_SETTER_IN_RECORD) {
+                System.out.println("record abstract final setter start");
+                tra.int32(1999);
+                tra.int64(2888L);
+                tra.tra((TestRecordAbstract) traConstructor.invokeExact(1, 5L));
+                System.out.println(tra.int32());
+                System.out.println(tra.int64());
+                System.out.println(tra.tra());
+                System.out.println(tra);
+                System.out.println("record abstract final setter after");
+            }
+            System.out.println("record abstract after");
         }
         System.out.println("End");
     }
@@ -86,5 +126,26 @@ public class Main {
         TestRecordInterface tri();
 
         void tri(TestRecordInterface value);
+    }
+
+    public static abstract class TestRecordAbstract {
+        private static MethodHandles.Lookup getLookup() {
+            return MethodHandles.lookup();
+        }
+
+        // must be 0 args constructor
+        private TestRecordAbstract() {} // private constructor allowed but not recommend
+
+        abstract int int32(); // default access is the min access for these methods
+
+        abstract void int32(int value);
+
+        abstract long int64();
+
+        abstract void int64(long value);
+
+        abstract TestRecordAbstract tra();
+
+        abstract void tra(TestRecordAbstract value);
     }
 }

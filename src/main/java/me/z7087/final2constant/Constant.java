@@ -7,9 +7,9 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public interface Constant<T> {
-    ConstantFactory factory = getFactory();
+    ConstantFactory factory = createFactory();
 
-    static ConstantFactory getFactory() {
+    static ConstantFactory createFactory() {
         int version;
         try {
             final Object versionObj = Objects.requireNonNull(Runtime.class.getMethod("version").invoke(null, (Object[]) null));

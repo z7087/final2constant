@@ -135,7 +135,8 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
 
     @Override
     public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                Class<T> recordInterfaceClass,
+                                                Class<T> recordAbstractOrInterfaceClass,
+                                                boolean useInterface,
                                                 String[] recordImmutableArgMethodNames,
                                                 String[] recordImmutableArgMethodTypes,
                                                 String[] recordMutableArgMethodNames,
@@ -148,7 +149,7 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
         if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
         if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
         if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        final String simpleClassName = recordInterfaceClass.getSimpleName() + "$RecordImpl";
+        final String simpleClassName = recordAbstractOrInterfaceClass.getSimpleName() + "$RecordImpl";
         try {
             final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
                     theUnsafe,
@@ -156,7 +157,8 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
                     generateRecordImpl(
                             hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
                             simpleClassName,
-                            recordInterfaceClass,
+                            recordAbstractOrInterfaceClass,
+                            useInterface,
                             recordImmutableArgMethodNames,
                             recordImmutableArgMethodTypes,
                             recordMutableArgMethodNames,
