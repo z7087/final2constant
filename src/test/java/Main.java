@@ -1,8 +1,13 @@
 import me.z7087.final2constant.Constant;
 import me.z7087.final2constant.DynamicConstant;
+import me.z7087.final2constant.util.JavaHelper;
 
+import java.io.Serializable;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.util.function.IntSupplier;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 public class Main {
     private static final boolean TEST_FINAL_SETTER_IN_RECORD = true;
@@ -35,24 +40,36 @@ public class Main {
         }
         {
             System.out.println("record interface start");
+            final String[] immutableNames, immutableDescriptors, mutableNames, mutableDescriptors;
+            try {
+                TestRecordInterface triEmptyImpl = Constant.factory.ofEmptyInterfaceImplInstance(
+                        MethodHandles.lookup(),
+                        TestRecordInterface.class
+                );
+                final String[][] immutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
+                        MethodHandles.lookup(),
+                        (IntSupplier & Serializable) triEmptyImpl::int32,
+                        (LongSupplier & Serializable) triEmptyImpl::int64
+                );
+                final String[][] mutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
+                        MethodHandles.lookup(),
+                        (Supplier<TestRecordInterface> & Serializable) triEmptyImpl::tri
+                );
+                immutableNames = immutableNamesAndDescriptors[0];
+                immutableDescriptors = immutableNamesAndDescriptors[1];
+                mutableNames = mutableNamesAndDescriptors[0];
+                mutableDescriptors = mutableNamesAndDescriptors[1];
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
             MethodHandle triConstructor = Constant.factory.ofRecordConstructor(
                     MethodHandles.lookup(),
                     TestRecordInterface.class,
                     true,
-                    new String[] {
-                            "int32",
-                            "int64"
-                    },
-                    new String[] {
-                            "I",
-                            "J"
-                    },
-                    new String[] {
-                            "tri"
-                    },
-                    new String[] {
-                            "L" + TestRecordInterface.class.getName().replace('.', '/') + ";"
-                    },
+                    immutableNames,
+                    immutableDescriptors,
+                    mutableNames,
+                    mutableDescriptors,
                     true,
                     true);
             TestRecordInterface tri = (TestRecordInterface) triConstructor.invokeExact(1, 5L);
@@ -74,24 +91,37 @@ public class Main {
         }
         {
             System.out.println("record abstract start");
+            final String[] immutableNames, immutableDescriptors, mutableNames, mutableDescriptors;
+            try {
+                TestRecordAbstract traEmptyImpl = Constant.factory.ofEmptyAbstractImplInstance(
+                        TestRecordAbstract.getLookup(), // MUST be the class itself's lookup if the constructor is private
+                        // if Main and TRA in the same nest, this is not needed, but the class is compiled with target compatibility java8 that has no nest
+                        TestRecordAbstract.class
+                );
+                final String[][] immutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
+                        MethodHandles.lookup(), // can be ourselves as we can access getter methods
+                        (IntSupplier & Serializable) traEmptyImpl::int32,
+                        (LongSupplier & Serializable) traEmptyImpl::int64
+                );
+                final String[][] mutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
+                        MethodHandles.lookup(),
+                        (Supplier<TestRecordAbstract> & Serializable) traEmptyImpl::tra
+                );
+                immutableNames = immutableNamesAndDescriptors[0];
+                immutableDescriptors = immutableNamesAndDescriptors[1];
+                mutableNames = mutableNamesAndDescriptors[0];
+                mutableDescriptors = mutableNamesAndDescriptors[1];
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
             MethodHandle traConstructor = Constant.factory.ofRecordConstructor(
                     TestRecordAbstract.getLookup(),
                     TestRecordAbstract.class,
                     false,
-                    new String[] {
-                            "int32",
-                            "int64"
-                    },
-                    new String[] {
-                            "I",
-                            "J"
-                    },
-                    new String[] {
-                            "tra"
-                    },
-                    new String[] {
-                            "L" + TestRecordAbstract.class.getName().replace('.', '/') + ";"
-                    },
+                    immutableNames,
+                    immutableDescriptors,
+                    mutableNames,
+                    mutableDescriptors,
                     true,
                     true);
             TestRecordAbstract tra = (TestRecordAbstract) traConstructor.invokeExact(1, 5L);

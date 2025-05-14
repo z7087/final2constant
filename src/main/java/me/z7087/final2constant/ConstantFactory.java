@@ -32,7 +32,6 @@ public abstract class ConstantFactory {
                                                          boolean generateToStringHashCodeEquals,
                                                          boolean generateSetterForFinalFields
     ) {
-
         return this.ofRecordConstructor(hostClass, recordInterfaceClass, true, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, null, null, generateToStringHashCodeEquals, generateSetterForFinalFields);
     }
 
@@ -45,6 +44,14 @@ public abstract class ConstantFactory {
                                                          String[] recordMutableArgMethodTypes,
                                                          boolean generateToStringHashCodeEquals,
                                                          boolean generateSetterForFinalFields
+    );
+
+    public abstract <T> T ofEmptyInterfaceImplInstance(MethodHandles.Lookup hostClass,
+                                                       Class<T> interfaceClass
+    );
+
+    public abstract <T> T ofEmptyAbstractImplInstance(MethodHandles.Lookup hostClass,
+                                                      Class<T> abstractClass
     );
 
     protected static byte[] generateConstantImpl(String className) {
@@ -927,6 +934,41 @@ public abstract class ConstantFactory {
             mvEquals.visitMaxs(-1, -1);
             mvEquals.visitEnd();
         }
+    }
+
+    protected static byte[] generateEmptyImpl(String className,
+                                              boolean useInterface,
+                                              Class<?> abstractOrInterfaceClass
+    ) {
+        final ClassWriter cwRecordImpl = new ClassWriter(0);
+        final String abstractOrInterfaceClassName = abstractOrInterfaceClass.getName().replace('.', '/');
+        cwRecordImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                null,
+                useInterface ? "java/lang/Object" : abstractOrInterfaceClassName,
+                useInterface ? new String[] { abstractOrInterfaceClassName } : null);
+        {
+            final MethodVisitor mvInit = cwRecordImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(
+                    INVOKESPECIAL,
+                    useInterface
+                            ? "java/lang/Object"
+                            : abstractOrInterfaceClassName
+                    ,
+                    "<init>",
+                    "()V",
+                    false
+            );
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(1, 1);
+            mvInit.visitEnd();
+        }
+        return cwRecordImpl.toByteArray();
     }
 
     private static String getMergedInitDesc(String[] recordArgMethodReturnTypes) {

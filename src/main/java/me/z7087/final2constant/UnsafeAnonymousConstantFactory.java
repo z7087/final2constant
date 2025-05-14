@@ -176,4 +176,56 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
             throw new RuntimeException(e);
         }
     }
+
+    @Override
+    public <T> T ofEmptyInterfaceImplInstance(
+            MethodHandles.Lookup hostClass,
+            Class<T> interfaceClass
+    ) {
+        assert MHDefineAnonymousClass != null;
+        try {
+            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
+                    theUnsafe,
+                    hostClass.lookupClass(),
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceClass.getSimpleName() + "$EmptyImpl",
+                            true,
+                            interfaceClass
+                    ),
+                    (Object[]) null
+            );
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return interfaceClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public <T> T ofEmptyAbstractImplInstance(
+            MethodHandles.Lookup hostClass,
+            Class<T> abstractClass
+    ) {
+        assert MHDefineAnonymousClass != null;
+        try {
+            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
+                    theUnsafe,
+                    hostClass.lookupClass(),
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + abstractClass.getSimpleName() + "$EmptyImpl",
+                            true,
+                            abstractClass
+                    ),
+                    (Object[]) null
+            );
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return abstractClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

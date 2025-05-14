@@ -193,4 +193,54 @@ class LookupHiddenConstantFactory extends ConstantFactory {
             throw new RuntimeException(e);
         }
     }
+
+    @Override
+    public <T> T ofEmptyInterfaceImplInstance(
+            MethodHandles.Lookup hostClass,
+            Class<T> interfaceClass
+    ) {
+        assert MHDefineHiddenClassNest != null;
+        try {
+            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
+                    hostClass,
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceClass.getSimpleName() + "$EmptyImpl",
+                            true,
+                            interfaceClass
+                    ),
+                    true
+            )).lookupClass();
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return interfaceClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public <T> T ofEmptyAbstractImplInstance(
+            MethodHandles.Lookup hostClass,
+            Class<T> abstractClass
+    ) {
+        assert MHDefineHiddenClassNest != null;
+        try {
+            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
+                    hostClass,
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + abstractClass.getSimpleName() + "$EmptyImpl",
+                            false,
+                            abstractClass
+                    ),
+                    true
+            )).lookupClass();
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return abstractClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
