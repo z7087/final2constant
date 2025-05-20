@@ -8,8 +8,6 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 class UnsafeAnonymousConstantFactory extends ConstantFactory {
-    private static final String[] EMPTY_STRING_ARRAY = new String[0];
-
     private static final Unsafe theUnsafe;
     private static final MethodHandle MHDefineAnonymousClass;
     static {
@@ -86,6 +84,16 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
     }
 
     @Override
+    protected Class<?> defineClassAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable {
+        return defineClassWithPrivilegeAt(hostClass, classBytes);
+    }
+
+    @Override
+    protected Class<?> defineClassWithPrivilegeAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable {
+        return (Class<?>) Objects.requireNonNull(MHDefineAnonymousClass).invokeExact(theUnsafe, hostClass.lookupClass(), classBytes, (Object[]) null);
+    }
+
+    @Override
     public <T> Constant<T> of(T value) {
         try {
             //noinspection unchecked
@@ -126,102 +134,6 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
         try {
             //noinspection unchecked
             return (Constant<T>) LazyConstantImplConstructor.invokeExact(supplier);
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                Class<T> recordAbstractOrInterfaceClass,
-                                                boolean useInterface,
-                                                String[] recordImmutableArgMethodNames,
-                                                String[] recordImmutableArgMethodTypes,
-                                                String[] recordMutableArgMethodNames,
-                                                String[] recordMutableArgMethodTypes,
-                                                boolean generateToStringHashCodeEquals,
-                                                boolean generateSetterForFinalFields
-    ) {
-        assert MHDefineAnonymousClass != null;
-        if (recordImmutableArgMethodNames == null) recordImmutableArgMethodNames = EMPTY_STRING_ARRAY;
-        if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
-        if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        final String simpleClassName = recordAbstractOrInterfaceClass.getSimpleName() + "$RecordImpl";
-        try {
-            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
-                    theUnsafe,
-                    hostClass.lookupClass(),
-                    generateRecordImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
-                            simpleClassName,
-                            recordAbstractOrInterfaceClass,
-                            useInterface,
-                            recordImmutableArgMethodNames,
-                            recordImmutableArgMethodTypes,
-                            recordMutableArgMethodNames,
-                            recordMutableArgMethodTypes,
-                            generateToStringHashCodeEquals,
-                            generateSetterForFinalFields
-                    ),
-                    (Object[]) null
-            );
-            final MethodHandle MHGetConstructorMH = hostClass.findStatic(clazz, "getConstructorMH", MethodType.methodType(MethodHandle.class, int.class));
-            return (MethodHandle) MHGetConstructorMH.invokeExact(0);
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> T ofEmptyInterfaceImplInstance(
-            MethodHandles.Lookup hostClass,
-            Class<T> interfaceClass
-    ) {
-        assert MHDefineAnonymousClass != null;
-        try {
-            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
-                    theUnsafe,
-                    hostClass.lookupClass(),
-                    generateEmptyImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceClass.getSimpleName() + "$EmptyImpl",
-                            true,
-                            interfaceClass
-                    ),
-                    (Object[]) null
-            );
-            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
-            return interfaceClass.cast(ConstructorMH.invokeExact());
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> T ofEmptyAbstractImplInstance(
-            MethodHandles.Lookup hostClass,
-            Class<T> abstractClass
-    ) {
-        assert MHDefineAnonymousClass != null;
-        try {
-            final Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(
-                    theUnsafe,
-                    hostClass.lookupClass(),
-                    generateEmptyImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + abstractClass.getSimpleName() + "$EmptyImpl",
-                            true,
-                            abstractClass
-                    ),
-                    (Object[]) null
-            );
-            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
-            return abstractClass.cast(ConstructorMH.invokeExact());
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {

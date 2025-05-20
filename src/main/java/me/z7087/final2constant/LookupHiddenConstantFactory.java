@@ -2,11 +2,10 @@ package me.z7087.final2constant;
 
 import java.lang.invoke.*;
 import java.lang.reflect.Array;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 class LookupHiddenConstantFactory extends ConstantFactory {
-    private static final String[] EMPTY_STRING_ARRAY = new String[0];
-
     private static final MethodHandle MHDefineHiddenClass;
     private static final MethodHandle MHDefineHiddenClassNest;
     static {
@@ -104,6 +103,16 @@ class LookupHiddenConstantFactory extends ConstantFactory {
     }
 
     @Override
+    protected Class<?> defineClassAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable {
+        return ((MethodHandles.Lookup) Objects.requireNonNull(MHDefineHiddenClass).invokeExact(hostClass, classBytes, true)).lookupClass();
+    }
+
+    @Override
+    protected Class<?> defineClassWithPrivilegeAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable {
+        return ((MethodHandles.Lookup) Objects.requireNonNull(MHDefineHiddenClassNest).invokeExact(hostClass, classBytes, true)).lookupClass();
+    }
+
+    @Override
     public <T> Constant<T> of(T value) {
         try {
             //noinspection unchecked
@@ -144,99 +153,6 @@ class LookupHiddenConstantFactory extends ConstantFactory {
         try {
             //noinspection unchecked
             return (Constant<T>) LazyConstantImplConstructor.invokeExact(supplier);
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                Class<T> recordAbstractOrInterfaceClass,
-                                                boolean useInterface,
-                                                String[] recordImmutableArgMethodNames,
-                                                String[] recordImmutableArgMethodTypes,
-                                                String[] recordMutableArgMethodNames,
-                                                String[] recordMutableArgMethodTypes,
-                                                boolean generateToStringHashCodeEquals,
-                                                boolean generateSetterForFinalFields
-    ) {
-        assert MHDefineHiddenClassNest != null;
-        if (recordImmutableArgMethodNames == null) recordImmutableArgMethodNames = EMPTY_STRING_ARRAY;
-        if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
-        if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
-        final String simpleClassName = recordAbstractOrInterfaceClass.getSimpleName() + "$RecordImpl";
-        try {
-            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
-                    hostClass,
-                    generateRecordImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
-                            simpleClassName,
-                            recordAbstractOrInterfaceClass,
-                            useInterface,
-                            recordImmutableArgMethodNames,
-                            recordImmutableArgMethodTypes,
-                            recordMutableArgMethodNames,
-                            recordMutableArgMethodTypes,
-                            generateToStringHashCodeEquals,
-                            generateSetterForFinalFields
-                    ),
-                    true
-            )).lookupClass();
-            final MethodHandle MHGetConstructorMH = hostClass.findStatic(clazz, "getConstructorMH", MethodType.methodType(MethodHandle.class, int.class));
-            return (MethodHandle) MHGetConstructorMH.invokeExact(0);
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> T ofEmptyInterfaceImplInstance(
-            MethodHandles.Lookup hostClass,
-            Class<T> interfaceClass
-    ) {
-        assert MHDefineHiddenClassNest != null;
-        try {
-            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
-                    hostClass,
-                    generateEmptyImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceClass.getSimpleName() + "$EmptyImpl",
-                            true,
-                            interfaceClass
-                    ),
-                    true
-            )).lookupClass();
-            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
-            return interfaceClass.cast(ConstructorMH.invokeExact());
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public <T> T ofEmptyAbstractImplInstance(
-            MethodHandles.Lookup hostClass,
-            Class<T> abstractClass
-    ) {
-        assert MHDefineHiddenClassNest != null;
-        try {
-            final Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClassNest.invokeExact(
-                    hostClass,
-                    generateEmptyImpl(
-                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + abstractClass.getSimpleName() + "$EmptyImpl",
-                            false,
-                            abstractClass
-                    ),
-                    true
-            )).lookupClass();
-            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
-            return abstractClass.cast(ConstructorMH.invokeExact());
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {

@@ -1,6 +1,7 @@
 package me.z7087.final2constant;
 
-import java.lang.reflect.InvocationTargetException;
+import me.z7087.final2constant.util.JavaHelper;
+
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -10,25 +11,11 @@ public interface Constant<T> {
     ConstantFactory factory = createFactory();
 
     static ConstantFactory createFactory() {
-        int version;
-        try {
-            final Object versionObj = Objects.requireNonNull(Runtime.class.getMethod("version").invoke(null, (Object[]) null));
-            try {
-                version = (int) versionObj.getClass().getMethod("major").invoke(versionObj, (Object[]) null);
-            } catch (NoSuchMethodException | InvocationTargetException e) {
-                version = (int) versionObj.getClass().getMethod("feature").invoke(versionObj, (Object[]) null);
-            }
-        } catch (NoSuchMethodException | InvocationTargetException e) {
-            version = 8;
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-        }
-        if (version < 15) { //
+        if (JavaHelper.CACHED_JAVA_VERSION < 15) {
             return new UnsafeAnonymousConstantFactory();
         } else {
             return new LookupHiddenConstantFactory();
         }
-        //throw new RuntimeException();
     }
 
     T get();

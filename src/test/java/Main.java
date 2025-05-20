@@ -5,6 +5,7 @@ import me.z7087.final2constant.util.JavaHelper;
 import java.io.Serializable;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -16,7 +17,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws Throwable {
-        System.out.println("Start");
+        System.out.println("Start with runtime java version " + JavaHelper.CACHED_JAVA_VERSION + (JavaHelper.CACHED_JAVA_VERSION <= 8 ? " or lower" : ""));
         {
             System.out.println(Constant.factory.of("nice").get());
         }
@@ -141,7 +142,66 @@ public class Main {
             }
             System.out.println("record abstract after");
         }
+        {
+            System.out.println("eventbus start");
+            final int handlerCount = 1000;
+            MethodHandle[] handlers = new MethodHandle[handlerCount];
+            {
+                for (int i = 0; i < handlerCount; ++i) {
+                    handlers[i] = EventHandler.onEventMH.bindTo(new EventHandler());
+                }
+            }
+            IEventHandler eventBusImpl = Constant.factory.ofEventBus(
+                    MethodHandles.lookup(),
+                    IEventHandler.class,
+                    IEventHandler.class.getMethods()[0].getName(),
+                    null,
+                    Event.class,
+                    Result.class,
+                    handlers,
+                    Result.defaultResultSupplierMH,
+                    Result.shouldBreakTestMH,
+                    null,
+                    null,
+                    false,
+                    325
+            );
+            EventBusTester.EventBusDC.set(eventBusImpl);
+            EventBusTester.EventBusDC.sync();
+            for (int i = 0; i < 10; ++i) {
+                EventBusTester.test10000();
+            }
+            System.out.println("eventbus after");
+        }
         System.out.println("End");
+    }
+
+    static class EventBusTester {
+        public static final DynamicConstant<IEventHandler> EventBusDC = Constant.factory.ofMutable(null);
+
+        public static Result test(Event event) {
+            return EventBusDC.orElseThrow().onEvent(event);
+        }
+        public static void test10000(Event event) {
+            for (int i = 0; i < 10000; ++i) {
+                test(event);
+            }
+        }
+        public static void test1000000(Event event) {
+            for (int i = 0; i < 1000000; ++i) {
+                test(event);
+            }
+        }
+        public static long test10000() {
+            long t = System.nanoTime();
+            test10000(Event.INSTANCE);
+            return System.nanoTime() - t;
+        }
+        public static long test1000000() {
+            long t = System.nanoTime();
+            test1000000(Event.INSTANCE);
+            return System.nanoTime() - t;
+        }
     }
 
     public interface TestRecordInterface {
@@ -177,5 +237,51 @@ public class Main {
         abstract TestRecordAbstract tra();
 
         abstract void tra(TestRecordAbstract value);
+    }
+
+    @SuppressWarnings("InstantiationOfUtilityClass")
+    public static final class Event {
+        public static final Event INSTANCE = new Event();
+    }
+    @SuppressWarnings("InstantiationOfUtilityClass")
+    public static final class Result {
+        public static final Result SUCCESS = new Result();
+        public static final Result FAIL = new Result();
+        public static final Result PASS = new Result();
+
+        public static final MethodHandle shouldBreakTestMH;
+        public static final MethodHandle defaultResultSupplierMH;
+        static {
+            try {
+                shouldBreakTestMH = MethodHandles.lookup().findStatic(Result.class, "shouldBreak", MethodType.methodType(boolean.class, Result.class));
+                defaultResultSupplierMH = MethodHandles.lookup().findStatic(Result.class, "defaultResult", MethodType.methodType(Result.class));
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public static boolean shouldBreak(Result result) {
+            return result != PASS;
+        }
+        public static Result defaultResult() {
+            return PASS;
+        }
+    }
+    public interface IEventHandler {
+        Result onEvent(Event event);
+    }
+    public static final class EventHandler implements IEventHandler {
+        public static final MethodHandle onEventMH;
+        static {
+            try {
+                onEventMH = MethodHandles.lookup().findVirtual(EventHandler.class, "onEvent", MethodType.methodType(Result.class, Event.class));
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        @Override
+        public Result onEvent(Event event) {
+            return Result.PASS;
+        }
     }
 }

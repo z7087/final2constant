@@ -1,14 +1,24 @@
 package me.z7087.final2constant;
 
+import me.z7087.final2constant.util.StringReuseHelper;
 import org.objectweb.asm.*;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.function.Supplier;
 
 import static org.objectweb.asm.Opcodes.*;
 
 public abstract class ConstantFactory {
+    private static final String[] EMPTY_STRING_ARRAY = new String[0];
+
+    protected abstract Class<?> defineClassAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable;
+    protected abstract Class<?> defineClassWithPrivilegeAt(MethodHandles.Lookup hostClass, byte[] classBytes) throws Throwable;
+
     public abstract <T> Constant<T> of(T value);
 
     public abstract <T> DynamicConstant<T> ofMutable(T value);
@@ -26,33 +36,167 @@ public abstract class ConstantFactory {
     }
 
     public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                         Class<T> recordInterfaceClass,
-                                                         String[] recordImmutableArgMethodNames,
-                                                         String[] recordImmutableArgMethodTypes,
-                                                         boolean generateToStringHashCodeEquals,
-                                                         boolean generateSetterForFinalFields
+                                                Class<T> recordInterfaceClass,
+                                                String[] recordImmutableArgMethodNames,
+                                                String[] recordImmutableArgMethodTypes,
+                                                boolean generateToStringHashCodeEquals,
+                                                boolean generateSetterForFinalFields
     ) {
         return this.ofRecordConstructor(hostClass, recordInterfaceClass, true, recordImmutableArgMethodNames, recordImmutableArgMethodTypes, null, null, generateToStringHashCodeEquals, generateSetterForFinalFields);
     }
 
-    public abstract <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
-                                                         Class<T> recordAbstractOrInterfaceClass,
-                                                         boolean useInterface,
-                                                         String[] recordImmutableArgMethodNames,
-                                                         String[] recordImmutableArgMethodTypes,
-                                                         String[] recordMutableArgMethodNames,
-                                                         String[] recordMutableArgMethodTypes,
-                                                         boolean generateToStringHashCodeEquals,
-                                                         boolean generateSetterForFinalFields
-    );
+    public <T> MethodHandle ofRecordConstructor(MethodHandles.Lookup hostClass,
+                                                Class<T> recordAbstractOrInterfaceClass,
+                                                boolean useInterface,
+                                                String[] recordImmutableArgMethodNames,
+                                                String[] recordImmutableArgMethodTypes,
+                                                String[] recordMutableArgMethodNames,
+                                                String[] recordMutableArgMethodTypes,
+                                                boolean generateToStringHashCodeEquals,
+                                                boolean generateSetterForFinalFields
+    ) {
+        if (recordImmutableArgMethodNames == null) recordImmutableArgMethodNames = EMPTY_STRING_ARRAY;
+        if (recordImmutableArgMethodTypes == null) recordImmutableArgMethodTypes = EMPTY_STRING_ARRAY;
+        if (recordMutableArgMethodNames == null) recordMutableArgMethodNames = EMPTY_STRING_ARRAY;
+        if (recordMutableArgMethodTypes == null) recordMutableArgMethodTypes = EMPTY_STRING_ARRAY;
+        final String simpleClassName = recordAbstractOrInterfaceClass.getSimpleName() + "$RecordImpl";
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(
+                    hostClass,
+                    generateRecordImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + simpleClassName,
+                            simpleClassName,
+                            recordAbstractOrInterfaceClass,
+                            useInterface,
+                            recordImmutableArgMethodNames,
+                            recordImmutableArgMethodTypes,
+                            recordMutableArgMethodNames,
+                            recordMutableArgMethodTypes,
+                            generateToStringHashCodeEquals,
+                            generateSetterForFinalFields
+                    )
+            );
+            final MethodHandle MHGetConstructorMH = hostClass.findStatic(clazz, "getConstructorMH", MethodType.methodType(MethodHandle.class, int.class));
+            return (MethodHandle) MHGetConstructorMH.invokeExact(0);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
 
-    public abstract <T> T ofEmptyInterfaceImplInstance(MethodHandles.Lookup hostClass,
-                                                       Class<T> interfaceClass
-    );
+    public <T> T ofEmptyInterfaceImplInstance(MethodHandles.Lookup hostClass,
+                                              Class<T> interfaceClass
+    ) {
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(
+                    hostClass,
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceClass.getSimpleName() + "$EmptyImpl",
+                            true,
+                            interfaceClass
+                    )
+            );
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return interfaceClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
 
-    public abstract <T> T ofEmptyAbstractImplInstance(MethodHandles.Lookup hostClass,
-                                                      Class<T> abstractClass
-    );
+    public <T> T ofEmptyAbstractImplInstance(MethodHandles.Lookup hostClass,
+                                             Class<T> abstractClass
+    ) {
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(
+                    hostClass,
+                    generateEmptyImpl(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + abstractClass.getSimpleName() + "$EmptyImpl",
+                            false,
+                            abstractClass
+                    )
+            );
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
+            return abstractClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // super slow for unknown reason
+    @Deprecated
+    public <T, E, R, TE extends Throwable> T ofEventBus(MethodHandles.Lookup hostClass,
+                                                                 Class<T> interfaceEventBusClass,
+                                                                 String interfaceMethodName,
+                                                                 MethodType interfaceMethodType,
+                                                                 Class<E> eventClass,
+                                                                 Class<R> resultClass,
+                                                                 MethodHandle[] handlers, // (E)R
+                                                                 MethodHandle defaultResultSupplier, // ()R
+                                                                 MethodHandle shouldBreakTest, // (R)boolean
+                                                                 Class<TE> exceptionType,
+                                                                 MethodHandle exceptionHandler, // (TE, E)R
+                                                                 boolean handleExceptionForEveryHandler,
+                                                                 int maxMethodBytecodeSize
+    ) {
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(
+                    hostClass,
+                    generateEventBusImplParts(
+                            hostClass.lookupClass().getName().replace('.', '/') + "$$" + interfaceEventBusClass.getSimpleName() + "$EventBusImpl",
+                            interfaceEventBusClass,
+                            interfaceMethodName,
+                            interfaceMethodType,
+                            eventClass,
+                            resultClass,
+                            handlers.length,
+                            exceptionType,
+                            handleExceptionForEveryHandler,
+                            maxMethodBytecodeSize
+                    )
+            );
+            MethodType constructorMT = MethodType.methodType(void.class, MethodHandle[].class);
+            ArrayList<Object> constructorArgs = new ArrayList<>();
+            {
+                final int handlerCount = handlers.length;
+                MethodHandle[] newHandlers = new MethodHandle[handlerCount];
+                final MethodType handlerType = MethodType.methodType(resultClass, eventClass);
+                for (int i = 0; i < handlerCount; ++i) {
+                    newHandlers[i] = handlers[i].asType(handlerType);
+                }
+                constructorArgs.add(newHandlers);
+            }
+            {
+                int mhArgCount = 0;
+                if (resultClass != void.class) {
+                    mhArgCount += 2;
+                    constructorArgs.add(defaultResultSupplier.asType(MethodType.methodType(resultClass)));
+                    constructorArgs.add(shouldBreakTest.asType(MethodType.methodType(boolean.class, resultClass)));
+                }
+                if (exceptionType != null) {
+                    mhArgCount += 1;
+                    constructorArgs.add(exceptionHandler.asType(MethodType.methodType(resultClass, exceptionType, eventClass)));
+                }
+                if (mhArgCount != 0) {
+                    Class<?>[] appendArgs = new Class[mhArgCount];
+                    for (int i = 0; i < mhArgCount; ++i) {
+                        appendArgs[i] = MethodHandle.class;
+                    }
+                    constructorMT = constructorMT.appendParameterTypes(appendArgs);
+                }
+            }
+            final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, constructorMT).asType(constructorMT.changeReturnType(Object.class));
+            return interfaceEventBusClass.cast(ConstructorMH.invokeWithArguments(constructorArgs));
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     protected static byte[] generateConstantImpl(String className) {
         // no lazy so prob a final field is enough
@@ -940,16 +1084,16 @@ public abstract class ConstantFactory {
                                               boolean useInterface,
                                               Class<?> abstractOrInterfaceClass
     ) {
-        final ClassWriter cwRecordImpl = new ClassWriter(0);
+        final ClassWriter cwEmptyImpl = new ClassWriter(0);
         final String abstractOrInterfaceClassName = abstractOrInterfaceClass.getName().replace('.', '/');
-        cwRecordImpl.visit(V1_8,
+        cwEmptyImpl.visit(V1_8,
                 ACC_PUBLIC | ACC_FINAL,
                 className,
                 null,
                 useInterface ? "java/lang/Object" : abstractOrInterfaceClassName,
                 useInterface ? new String[] { abstractOrInterfaceClassName } : null);
         {
-            final MethodVisitor mvInit = cwRecordImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            final MethodVisitor mvInit = cwEmptyImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             mvInit.visitCode();
 
             mvInit.visitVarInsn(ALOAD, 0);
@@ -968,7 +1112,713 @@ public abstract class ConstantFactory {
             mvInit.visitMaxs(1, 1);
             mvInit.visitEnd();
         }
-        return cwRecordImpl.toByteArray();
+        return cwEmptyImpl.toByteArray();
+    }
+
+    private static final int FrecInlineSize = 325;
+    private static final int FrecInlineSize2 = 175;
+    private static final int MaxInlineSize = 35;
+    private static final String[] StringThrowableArray = new String[] {"java/lang/Throwable"};
+
+    protected static <T, E, R, TE extends Throwable> byte[] generateEventBusImplParts(
+            String className,
+            Class<T> interfaceEventBusClass,
+            String interfaceMethodName,
+            MethodType interfaceMethodType,
+            Class<E> eventClass,
+            Class<R> resultClass,
+            int handlerCount,
+            //MethodHandle[] handlers,
+            //MethodHandle defaultResultSupplier, // ()R
+            //MethodHandle shouldBreakTest, // (R)boolean
+            Class<TE> exceptionType,
+            //MethodHandle exceptionHandler, // (TE, E)R
+            boolean handleExceptionForEveryHandler,
+            int maxMethodBytecodeSize
+    ) {
+        if (maxMethodBytecodeSize < 35)
+            throw new IllegalArgumentException("MaxMethodBytecodeSize too small: " + maxMethodBytecodeSize);
+        // no idea about how to make multiclass... 5000 for safe
+        if (handlerCount > 5000)
+            throw new IllegalArgumentException("Handlers too many: " + handlerCount);
+        final Type exceptionTypeType;
+        final String exceptionTypeName;
+        final boolean hasExceptionHandler = exceptionType != null;
+        if (!hasExceptionHandler) {
+            handleExceptionForEveryHandler = false;
+            exceptionTypeType = null;
+            exceptionTypeName = null;
+        } else {
+            exceptionTypeType = Type.getType(exceptionType);
+            exceptionTypeName = exceptionTypeType.getInternalName();
+        }
+        final Type eventClassType = Type.getType(eventClass);
+        final String eventClassDesc = eventClassType.getDescriptor();
+        final Type resultClassType = Type.getType(resultClass);
+        final String resultClassDesc = resultClassType.getDescriptor();
+        if (eventClassType.getSort() == Type.VOID || eventClassType.getSort() == Type.METHOD) {
+            throw new IllegalArgumentException("Illegal eventClass type: " + eventClassType.getSort());
+        } else if (resultClassType.getSort() == Type.METHOD) {
+            throw new IllegalArgumentException("Illegal resultClass type: " + resultClassType.getSort());
+        }
+        final boolean resultClassTypeNotVoid = resultClassType.getSort() != Type.VOID;
+        final String funcResultBooleanDesc = resultClassTypeNotVoid ? ("(" + resultClassDesc + ")Z") : null;
+        final String supplierResultDesc = resultClassTypeNotVoid ? ("()" + resultClassDesc) : null;
+        final String funcEventResultDesc = "(" + eventClassDesc + ")" + resultClassDesc;
+        final String funcExceptionEventResultDesc = hasExceptionHandler ? ("(" + exceptionTypeType.getDescriptor() + eventClassDesc + ")" + resultClassDesc) : null;
+
+        //noinspection ConstantValue
+        if (handlerCount <= 5000) {
+            final StringReuseHelper srh = new StringReuseHelper();
+            final ClassWriter cwEventBusImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+
+            final String interfaceClassName = interfaceEventBusClass.getName().replace('.', '/');
+            cwEventBusImpl.visit(V1_8,
+                    ACC_PUBLIC | ACC_FINAL,
+                    srh.addL(className),
+                    null,
+                    "java/lang/Object",
+                    new String[] {
+                            srh.addL(interfaceClassName)
+                    }
+            );
+            final String defaultResultSupplierMHFieldName, shouldBreakTestMHFieldName;
+            if (resultClassTypeNotVoid) {
+                defaultResultSupplierMHFieldName = srh.poolUnusedPlaceholder();
+                shouldBreakTestMHFieldName = srh.poolUnusedPlaceholder();
+                {
+                    {
+                        final FieldVisitor fvDefaultResultSupplierMH = cwEventBusImpl.visitField(ACC_PUBLIC | ACC_FINAL, defaultResultSupplierMHFieldName, "Ljava/lang/invoke/MethodHandle;", null, null);
+                        fvDefaultResultSupplierMH.visitEnd();
+                    }
+                    {
+                        final MethodVisitor mvGetDefaultResult = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, defaultResultSupplierMHFieldName, supplierResultDesc, null, StringThrowableArray);
+                        mvGetDefaultResult.visitVarInsn(ALOAD, 0);
+                        mvGetDefaultResult.visitFieldInsn(GETFIELD, className, defaultResultSupplierMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                        mvGetDefaultResult.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", supplierResultDesc, false);
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvGetDefaultResult.visitInsn(IRETURN);
+                                break;
+                            case Type.DOUBLE:
+                                mvGetDefaultResult.visitInsn(DRETURN);
+                                break;
+                            case Type.FLOAT:
+                                mvGetDefaultResult.visitInsn(FRETURN);
+                                break;
+                            case Type.LONG:
+                                mvGetDefaultResult.visitInsn(LRETURN);
+                                break;
+                            default:
+                                mvGetDefaultResult.visitInsn(ARETURN);
+                        }
+                        mvGetDefaultResult.visitMaxs(-1, -1);
+                        mvGetDefaultResult.visitEnd();
+                    }
+                }
+                {
+                    {
+                        final FieldVisitor fvShouldBreakTestMH = cwEventBusImpl.visitField(ACC_PUBLIC | ACC_FINAL, shouldBreakTestMHFieldName, "Ljava/lang/invoke/MethodHandle;", null, null);
+                        fvShouldBreakTestMH.visitEnd();
+                    }
+                    {
+                        final MethodVisitor mvShouldBreakTest = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, shouldBreakTestMHFieldName, funcResultBooleanDesc, null, StringThrowableArray);
+                        mvShouldBreakTest.visitVarInsn(ALOAD, 0);
+                        mvShouldBreakTest.visitFieldInsn(GETFIELD, className, shouldBreakTestMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvShouldBreakTest.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvShouldBreakTest.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvShouldBreakTest.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvShouldBreakTest.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvShouldBreakTest.visitVarInsn(ALOAD, 1);
+                        }
+                        mvShouldBreakTest.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", funcResultBooleanDesc, false);
+                        mvShouldBreakTest.visitInsn(IRETURN);
+                        mvShouldBreakTest.visitMaxs(-1, -1);
+                        mvShouldBreakTest.visitEnd();
+                    }
+                }
+            } else {
+                defaultResultSupplierMHFieldName = shouldBreakTestMHFieldName = null;
+            }
+            final String exceptionHandlerMHFieldName;
+            if (hasExceptionHandler) {
+                exceptionHandlerMHFieldName = srh.poolUnusedPlaceholder();
+                {
+                    final FieldVisitor fvExceptionHandlerMH = cwEventBusImpl.visitField(ACC_PUBLIC | ACC_FINAL, exceptionHandlerMHFieldName, "Ljava/lang/invoke/MethodHandle;", null, null);
+                    fvExceptionHandlerMH.visitEnd();
+                }
+                {
+                    final MethodVisitor mvExceptionHandler = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, exceptionHandlerMHFieldName, funcExceptionEventResultDesc, null, StringThrowableArray);
+                    mvExceptionHandler.visitVarInsn(ALOAD, 0);
+                    mvExceptionHandler.visitFieldInsn(GETFIELD, className, exceptionHandlerMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                    mvExceptionHandler.visitVarInsn(ALOAD, 1);
+                    switch (eventClassType.getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT:
+                            mvExceptionHandler.visitVarInsn(ILOAD, 2);
+                            break;
+                        case Type.DOUBLE:
+                            mvExceptionHandler.visitVarInsn(DLOAD, 2);
+                            break;
+                        case Type.FLOAT:
+                            mvExceptionHandler.visitVarInsn(FLOAD, 2);
+                            break;
+                        case Type.LONG:
+                            mvExceptionHandler.visitVarInsn(LLOAD, 2);
+                            break;
+                        default:
+                            mvExceptionHandler.visitVarInsn(ALOAD, 2);
+                    }
+                    mvExceptionHandler.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", funcExceptionEventResultDesc, false);
+                    switch (resultClassType.getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT:
+                            mvExceptionHandler.visitInsn(IRETURN);
+                            break;
+                        case Type.DOUBLE:
+                            mvExceptionHandler.visitInsn(DRETURN);
+                            break;
+                        case Type.FLOAT:
+                            mvExceptionHandler.visitInsn(FRETURN);
+                            break;
+                        case Type.LONG:
+                            mvExceptionHandler.visitInsn(LRETURN);
+                            break;
+                        case Type.VOID:
+                            mvExceptionHandler.visitInsn(RETURN);
+                            break;
+                        default:
+                            mvExceptionHandler.visitInsn(ARETURN);
+                    }
+                    mvExceptionHandler.visitMaxs(-1, -1);
+                    mvExceptionHandler.visitEnd();
+                }
+            } else {
+                exceptionHandlerMHFieldName = null;
+            }
+            final String[] handlerMHFieldAndMethodNames = new String[handlerCount];
+            for (int i = 0; i < handlerCount; ++i) {
+                final String name = srh.poolUnusedPlaceholder();
+                handlerMHFieldAndMethodNames[i] = name;
+                {
+                    final FieldVisitor fvHandlerMH = cwEventBusImpl.visitField(ACC_PUBLIC | ACC_FINAL, name, "Ljava/lang/invoke/MethodHandle;", null, null);
+                    fvHandlerMH.visitEnd();
+                }
+                {
+                    final MethodVisitor mvCallHandler = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, name, funcEventResultDesc, null, StringThrowableArray);
+                    mvCallHandler.visitCode();
+
+                    mvCallHandler.visitVarInsn(ALOAD, 0);
+                    mvCallHandler.visitFieldInsn(GETFIELD, className, name, "Ljava/lang/invoke/MethodHandle;");
+                    if (handleExceptionForEveryHandler) {
+                        Label tryStart = new Label();
+                        Label tryEnd = new Label();
+                        Label exceptionHandlerStart = new Label();
+                        mvCallHandler.visitTryCatchBlock(tryStart, tryEnd, exceptionHandlerStart, exceptionTypeName);
+                        switch (eventClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvCallHandler.visitVarInsn(ALOAD, 1);
+                        }
+                        mvCallHandler.visitLabel(tryStart);
+                        mvCallHandler.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", funcEventResultDesc, false);
+                        mvCallHandler.visitLabel(tryEnd);
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitInsn(IRETURN);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitInsn(DRETURN);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitInsn(FRETURN);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitInsn(LRETURN);
+                                break;
+                            case Type.VOID:
+                                mvCallHandler.visitInsn(RETURN);
+                                break;
+                            default:
+                                mvCallHandler.visitInsn(ARETURN);
+                        }
+                        mvCallHandler.visitLabel(exceptionHandlerStart);
+                        mvCallHandler.visitVarInsn(ALOAD, 0);
+                        mvCallHandler.visitInsn(SWAP);
+                        switch (eventClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvCallHandler.visitVarInsn(ALOAD, 1);
+                        }
+                        mvCallHandler.visitMethodInsn(INVOKEVIRTUAL, className, exceptionHandlerMHFieldName, funcExceptionEventResultDesc, false);
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitInsn(IRETURN);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitInsn(DRETURN);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitInsn(FRETURN);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitInsn(LRETURN);
+                                break;
+                            case Type.VOID:
+                                mvCallHandler.visitInsn(RETURN);
+                                break;
+                            default:
+                                mvCallHandler.visitInsn(ARETURN);
+                        }
+                    } else {
+                        switch (eventClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvCallHandler.visitVarInsn(ALOAD, 1);
+                        }
+                        mvCallHandler.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", funcEventResultDesc, false);
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvCallHandler.visitInsn(IRETURN);
+                                break;
+                            case Type.DOUBLE:
+                                mvCallHandler.visitInsn(DRETURN);
+                                break;
+                            case Type.FLOAT:
+                                mvCallHandler.visitInsn(FRETURN);
+                                break;
+                            case Type.LONG:
+                                mvCallHandler.visitInsn(LRETURN);
+                                break;
+                            case Type.VOID:
+                                mvCallHandler.visitInsn(RETURN);
+                                break;
+                            default:
+                                mvCallHandler.visitInsn(ARETURN);
+                        }
+                    }
+
+                    mvCallHandler.visitMaxs(-1, -1);
+                    mvCallHandler.visitEnd();
+                }
+            }
+            ArrayDeque<String> methodsToLink = new ArrayDeque<>(Arrays.asList(handlerMHFieldAndMethodNames));
+            // non-void 14round + 7, void 5round + 1
+            while (methodsToLink.size() > 1) {
+                final String name = srh.poolUnusedPlaceholder();
+                final MethodVisitor mvHandlerBridge = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, name, funcEventResultDesc, null, StringThrowableArray);
+                mvHandlerBridge.visitCode();
+
+                final int step = resultClassTypeNotVoid ? 14 : 5;
+                int i = step;
+                String currentMethodToLink;
+                Label returnCachedResult = resultClassTypeNotVoid ? new Label() : null;
+                while (i + (resultClassTypeNotVoid ? 7 : 1) <= maxMethodBytecodeSize && (currentMethodToLink = methodsToLink.poll()) != null) {
+                    i += step;
+                    if (resultClassTypeNotVoid) {
+                        mvHandlerBridge.visitVarInsn(ALOAD, 0);
+                    }
+                    mvHandlerBridge.visitVarInsn(ALOAD, 0);
+                    switch (eventClassType.getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT:
+                            mvHandlerBridge.visitVarInsn(ILOAD, 1);
+                            break;
+                        case Type.DOUBLE:
+                            mvHandlerBridge.visitVarInsn(DLOAD, 1);
+                            break;
+                        case Type.FLOAT:
+                            mvHandlerBridge.visitVarInsn(FLOAD, 1);
+                            break;
+                        case Type.LONG:
+                            mvHandlerBridge.visitVarInsn(LLOAD, 1);
+                            break;
+                        default:
+                            mvHandlerBridge.visitVarInsn(ALOAD, 1);
+                    }
+                    mvHandlerBridge.visitMethodInsn(INVOKEVIRTUAL, className, currentMethodToLink, funcEventResultDesc, false);
+                    if (resultClassTypeNotVoid) {
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvHandlerBridge.visitVarInsn(ISTORE, 3);
+                                mvHandlerBridge.visitVarInsn(ILOAD, 3);
+                                break;
+                            case Type.DOUBLE:
+                                mvHandlerBridge.visitVarInsn(DSTORE, 3);
+                                mvHandlerBridge.visitVarInsn(DLOAD, 3);
+                                break;
+                            case Type.FLOAT:
+                                mvHandlerBridge.visitVarInsn(FSTORE, 3);
+                                mvHandlerBridge.visitVarInsn(FLOAD, 3);
+                                break;
+                            case Type.LONG:
+                                mvHandlerBridge.visitVarInsn(LSTORE, 3);
+                                mvHandlerBridge.visitVarInsn(LLOAD, 3);
+                                break;
+                            default:
+                                mvHandlerBridge.visitVarInsn(ASTORE, 3);
+                                mvHandlerBridge.visitVarInsn(ALOAD, 3);
+                        }
+                        mvHandlerBridge.visitMethodInsn(INVOKEVIRTUAL, className, shouldBreakTestMHFieldName, funcResultBooleanDesc, false);
+                        mvHandlerBridge.visitJumpInsn(IFNE, returnCachedResult);
+                    }
+                }
+                if (resultClassTypeNotVoid) {
+                    mvHandlerBridge.visitVarInsn(ALOAD, 0);
+                    mvHandlerBridge.visitMethodInsn(INVOKEVIRTUAL, className, defaultResultSupplierMHFieldName, supplierResultDesc, false);
+                    switch (resultClassType.getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT:
+                            mvHandlerBridge.visitInsn(IRETURN);
+                            break;
+                        case Type.DOUBLE:
+                            mvHandlerBridge.visitInsn(DRETURN);
+                            break;
+                        case Type.FLOAT:
+                            mvHandlerBridge.visitInsn(FRETURN);
+                            break;
+                        case Type.LONG:
+                            mvHandlerBridge.visitInsn(LRETURN);
+                            break;
+                        default:
+                            mvHandlerBridge.visitInsn(ARETURN);
+                    }
+                    mvHandlerBridge.visitLabel(returnCachedResult);
+                }
+                switch (resultClassType.getSort()) {
+                    case Type.BOOLEAN:
+                    case Type.BYTE:
+                    case Type.CHAR:
+                    case Type.INT:
+                    case Type.SHORT:
+                        mvHandlerBridge.visitVarInsn(ILOAD, 3);
+                        mvHandlerBridge.visitInsn(IRETURN);
+                        break;
+                    case Type.DOUBLE:
+                        mvHandlerBridge.visitVarInsn(DLOAD, 3);
+                        mvHandlerBridge.visitInsn(DRETURN);
+                        break;
+                    case Type.FLOAT:
+                        mvHandlerBridge.visitVarInsn(FLOAD, 3);
+                        mvHandlerBridge.visitInsn(FRETURN);
+                        break;
+                    case Type.LONG:
+                        mvHandlerBridge.visitVarInsn(LLOAD, 3);
+                        mvHandlerBridge.visitInsn(LRETURN);
+                        break;
+                    case Type.VOID:
+                        mvHandlerBridge.visitInsn(RETURN);
+                        break;
+                    default:
+                        mvHandlerBridge.visitVarInsn(ALOAD, 3);
+                        mvHandlerBridge.visitInsn(ARETURN);
+                }
+
+                mvHandlerBridge.visitMaxs(-1, -1);
+                mvHandlerBridge.visitEnd();
+                methodsToLink.add(name);
+            }
+            switch (methodsToLink.size()) {
+                case 0:
+                case 1: {
+                    final MethodVisitor mvHandlerFinalBridge = cwEventBusImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, interfaceMethodName, funcEventResultDesc, null, null);
+                    mvHandlerFinalBridge.visitCode();
+
+                    final String lastBridgeName = methodsToLink.peek();
+                    final Label tryStart = new Label();
+                    final Label tryEnd = new Label();
+                    final boolean handleExceptionFromHandlers = hasExceptionHandler && !handleExceptionForEveryHandler;
+                    final Label handlersExceptionHandler = handleExceptionFromHandlers ? new Label() : null;
+                    final Label handlersExceptionHandlerEnd = handleExceptionFromHandlers ? new Label() : null;
+                    final Label throwableHandler = new Label();
+                    if (handleExceptionFromHandlers) {
+                        mvHandlerFinalBridge.visitTryCatchBlock(tryStart, tryEnd, handlersExceptionHandler, exceptionTypeName);
+                        mvHandlerFinalBridge.visitTryCatchBlock(tryStart, handlersExceptionHandlerEnd, throwableHandler, "java/lang/Throwable");
+                    } else {
+                        mvHandlerFinalBridge.visitTryCatchBlock(tryStart, tryEnd, throwableHandler, "java/lang/Throwable");
+                    }
+                    mvHandlerFinalBridge.visitVarInsn(ALOAD, 0);
+                    if (lastBridgeName != null) {
+                        switch (eventClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvHandlerFinalBridge.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvHandlerFinalBridge.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvHandlerFinalBridge.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvHandlerFinalBridge.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvHandlerFinalBridge.visitVarInsn(ALOAD, 1);
+                        }
+                        mvHandlerFinalBridge.visitLabel(tryStart);
+                        mvHandlerFinalBridge.visitMethodInsn(INVOKEVIRTUAL, className, lastBridgeName, funcEventResultDesc, false);
+                    } else {
+                        mvHandlerFinalBridge.visitLabel(tryStart);
+                        mvHandlerFinalBridge.visitMethodInsn(INVOKEVIRTUAL, className, defaultResultSupplierMHFieldName, supplierResultDesc, false);
+                    }
+                    mvHandlerFinalBridge.visitLabel(tryEnd);
+                    switch (resultClassType.getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT:
+                            mvHandlerFinalBridge.visitInsn(IRETURN);
+                            break;
+                        case Type.DOUBLE:
+                            mvHandlerFinalBridge.visitInsn(DRETURN);
+                            break;
+                        case Type.FLOAT:
+                            mvHandlerFinalBridge.visitInsn(FRETURN);
+                            break;
+                        case Type.LONG:
+                            mvHandlerFinalBridge.visitInsn(LRETURN);
+                            break;
+                        case Type.VOID:
+                            mvHandlerFinalBridge.visitInsn(RETURN);
+                            break;
+                        default:
+                            mvHandlerFinalBridge.visitInsn(ARETURN);
+                    }
+                    if (handleExceptionFromHandlers) {
+                        mvHandlerFinalBridge.visitLabel(handlersExceptionHandler);
+                        mvHandlerFinalBridge.visitVarInsn(ALOAD, 0);
+                        mvHandlerFinalBridge.visitInsn(SWAP);
+                        switch (eventClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvHandlerFinalBridge.visitVarInsn(ILOAD, 1);
+                                break;
+                            case Type.DOUBLE:
+                                mvHandlerFinalBridge.visitVarInsn(DLOAD, 1);
+                                break;
+                            case Type.FLOAT:
+                                mvHandlerFinalBridge.visitVarInsn(FLOAD, 1);
+                                break;
+                            case Type.LONG:
+                                mvHandlerFinalBridge.visitVarInsn(LLOAD, 1);
+                                break;
+                            default:
+                                mvHandlerFinalBridge.visitVarInsn(ALOAD, 1);
+                        }
+                        mvHandlerFinalBridge.visitMethodInsn(INVOKEVIRTUAL, className, exceptionHandlerMHFieldName, funcExceptionEventResultDesc, false);
+                        switch (resultClassType.getSort()) {
+                            case Type.BOOLEAN:
+                            case Type.BYTE:
+                            case Type.CHAR:
+                            case Type.INT:
+                            case Type.SHORT:
+                                mvHandlerFinalBridge.visitInsn(IRETURN);
+                                break;
+                            case Type.DOUBLE:
+                                mvHandlerFinalBridge.visitInsn(DRETURN);
+                                break;
+                            case Type.FLOAT:
+                                mvHandlerFinalBridge.visitInsn(FRETURN);
+                                break;
+                            case Type.LONG:
+                                mvHandlerFinalBridge.visitInsn(LRETURN);
+                                break;
+                            case Type.VOID:
+                                mvHandlerFinalBridge.visitInsn(RETURN);
+                                break;
+                            default:
+                                mvHandlerFinalBridge.visitInsn(ARETURN);
+                        }
+                        mvHandlerFinalBridge.visitLabel(handlersExceptionHandlerEnd);
+                    }
+                    mvHandlerFinalBridge.visitLabel(throwableHandler);
+                    mvHandlerFinalBridge.visitVarInsn(ASTORE, 3);
+                    mvHandlerFinalBridge.visitTypeInsn(NEW, "java/lang/RuntimeException");
+                    mvHandlerFinalBridge.visitInsn(DUP);
+                    mvHandlerFinalBridge.visitVarInsn(ALOAD, 3);
+                    mvHandlerFinalBridge.visitMethodInsn(INVOKESPECIAL, "java/lang/RuntimeException", "<init>", "(Ljava/lang/Throwable;)V", false);
+                    mvHandlerFinalBridge.visitInsn(ATHROW);
+
+                    mvHandlerFinalBridge.visitMaxs(-1, -1);
+                    mvHandlerFinalBridge.visitEnd();
+                    break;
+                }
+                default:
+                    throw new AssertionError();
+            }
+            {
+                // init(MH[] handlers, ?MH defaultResultSupplier, ?MH shouldBreakTest, ?MH exceptionHandler)
+                final MethodVisitor mvInit = cwEventBusImpl.visitMethod(ACC_PUBLIC, "<init>", "([Ljava/lang/invoke/MethodHandle;" + (resultClassTypeNotVoid ? "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodHandle;" : "") + (hasExceptionHandler ? "Ljava/lang/invoke/MethodHandle;" : "") + ")V", null, null);
+                mvInit.visitCode();
+
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitMethodInsn(
+                        INVOKESPECIAL,
+                        "java/lang/Object",
+                        "<init>",
+                        srh.addL("()V"),
+                        false
+                );
+
+                for (int i = 0; i < handlerCount; ++i) {
+                    mvInit.visitVarInsn(ALOAD, 0);
+                    mvInit.visitVarInsn(ALOAD, 1);
+                    switch (i) {
+                        case 0:
+                            mvInit.visitInsn(ICONST_0);
+                            break;
+                        case 1:
+                            mvInit.visitInsn(ICONST_1);
+                            break;
+                        case 2:
+                            mvInit.visitInsn(ICONST_2);
+                            break;
+                        case 3:
+                            mvInit.visitInsn(ICONST_3);
+                            break;
+                        case 4:
+                            mvInit.visitInsn(ICONST_4);
+                            break;
+                        case 5:
+                            mvInit.visitInsn(ICONST_5);
+                            break;
+                        default:
+                            if (i > Byte.MAX_VALUE) {
+                                //noinspection ConstantValue
+                                if (i > Short.MAX_VALUE) {
+                                    mvInit.visitLdcInsn(i);
+                                } else {
+                                    mvInit.visitIntInsn(SIPUSH, i);
+                                }
+                            } else {
+                                mvInit.visitIntInsn(BIPUSH, i);
+                            }
+                            break;
+                    }
+                    mvInit.visitInsn(AALOAD);
+                    mvInit.visitFieldInsn(PUTFIELD, className, handlerMHFieldAndMethodNames[i], "Ljava/lang/invoke/MethodHandle;");
+                }
+                int index = 2;
+                if (resultClassTypeNotVoid) {
+                    mvInit.visitVarInsn(ALOAD, 0);
+                    mvInit.visitVarInsn(ALOAD, index++);
+                    mvInit.visitFieldInsn(PUTFIELD, className, defaultResultSupplierMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                    mvInit.visitVarInsn(ALOAD, 0);
+                    mvInit.visitVarInsn(ALOAD, index++);
+                    mvInit.visitFieldInsn(PUTFIELD, className, shouldBreakTestMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                }
+                if (hasExceptionHandler) {
+                    mvInit.visitVarInsn(ALOAD, 0);
+                    mvInit.visitVarInsn(ALOAD, index);
+                    mvInit.visitFieldInsn(PUTFIELD, className, exceptionHandlerMHFieldName, "Ljava/lang/invoke/MethodHandle;");
+                }
+
+                mvInit.visitInsn(RETURN);
+                mvInit.visitMaxs(-1, -1);
+                mvInit.visitEnd();
+            }
+            return cwEventBusImpl.toByteArray();
+        }
+        throw new AssertionError();
     }
 
     private static String getMergedInitDesc(String[] recordArgMethodReturnTypes) {
