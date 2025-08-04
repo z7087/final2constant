@@ -713,7 +713,7 @@ public abstract class ConstantFactory {
                         varIndex += 2;
                         break;
                     default:
-                        if (recordArgMethodReturnType.charAt(0) != 'L')
+                        if (recordArgMethodReturnType.charAt(0) != 'L' && recordArgMethodReturnType.charAt(0) != '[')
                             throw new IllegalArgumentException("Unexpected descriptor: " + recordArgMethodReturnType);
                         mvInit.visitVarInsn(ALOAD, varIndex++);
                 }

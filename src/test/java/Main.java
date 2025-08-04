@@ -16,6 +16,7 @@ public class Main {
         String ignored = Main.class.getName();
     }
 
+    @SuppressWarnings("deprecation")
     public static void main(String[] args) throws Throwable {
         System.out.println("Start with runtime java version " + JavaHelper.CACHED_JAVA_VERSION + (JavaHelper.CACHED_JAVA_VERSION <= 8 ? " or lower" : ""));
         {
