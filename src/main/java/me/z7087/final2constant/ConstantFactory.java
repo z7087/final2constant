@@ -3,9 +3,8 @@ package me.z7087.final2constant;
 import me.z7087.final2constant.util.StringReuseHelper;
 import org.objectweb.asm.*;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
+import java.lang.invoke.*;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -120,6 +119,56 @@ public abstract class ConstantFactory {
             );
             final MethodHandle ConstructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(Object.class));
             return abstractClass.cast(ConstructorMH.invokeExact());
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public <T> Constant<T> ofBase(T value) {
+        try {
+            final Class<?> clazz = defineClassAt(MethodHandles.lookup(), generateConstantBaseImpl(ConstantFactory.class.getName().replace('.', '/') + "$ConstantBaseImpl"));
+            final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
+            //noinspection unchecked
+            return (Constant<T>) constructorMH.invokeExact((Object) value);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public <T> T makeBase(
+            MethodHandles.Lookup hostClass,
+            Method delegateMethod,
+            MethodHandle mh,
+            boolean sneakyThrows
+    ) {
+        @SuppressWarnings("unchecked")
+        final Class<T> delegateAbstractOrInterfaceClass = (Class<T>) delegateMethod.getDeclaringClass();
+        return makeBase(
+                hostClass,
+                delegateAbstractOrInterfaceClass,
+                delegateAbstractOrInterfaceClass.isInterface(),
+                delegateMethod.getName(),
+                mh,
+                sneakyThrows
+        );
+    }
+
+    public <T> T makeBase(
+            MethodHandles.Lookup hostClass,
+            Class<T> delegateAbstractOrInterfaceClass,
+            boolean useInterface,
+            String delegateMethodName,
+            MethodHandle mh,
+            boolean sneakyThrows
+    ) {
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(hostClass, generateMethodHandleBaseImpl(hostClass.lookupClass().getName().replace('.', '/') + "$MethodHandleBaseImpl", delegateAbstractOrInterfaceClass, useInterface, delegateMethodName, mh.type(), sneakyThrows));
+            final MethodHandle constructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class, MethodHandle.class)).asType(MethodType.methodType(Object.class, MethodHandle.class));
+            return delegateAbstractOrInterfaceClass.cast((Object) constructorMH.invokeExact(mh));
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
@@ -1113,6 +1162,235 @@ public abstract class ConstantFactory {
             mvInit.visitEnd();
         }
         return cwEmptyImpl.toByteArray();
+    }
+
+    protected static byte[] generateConstantBaseImpl(String className) {
+        final ClassWriter cwConstantBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final String ConstantClassName = Constant.class.getName().replace('.', '/');
+        cwConstantBaseImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                "<T:Ljava/lang/Object;>Ljava/lang/Object;L" + ConstantClassName + "<TT;>;",
+                "java/lang/Object",
+                new String[] {
+                        ConstantClassName
+                });
+        {
+            final FieldVisitor fvCallSite = cwConstantBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "callSite", "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+        }
+        {
+            final FieldVisitor fvDynamicInvoker = cwConstantBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "dynamicInvoker", "Ljava/lang/invoke/MethodHandle;", null, null);
+            fvDynamicInvoker.visitEnd();
+        }
+        {
+            final MethodVisitor mvClInit = cwConstantBaseImpl.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+            mvClInit.visitCode();
+
+            mvClInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+            mvClInit.visitInsn(DUP);
+            mvClInit.visitLdcInsn(Type.getType(Object.class));
+            mvClInit.visitInsn(ACONST_NULL);
+            mvClInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+            mvClInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+            mvClInit.visitInsn(DUP);
+            mvClInit.visitFieldInsn(PUTSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+
+            mvClInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false);
+            mvClInit.visitFieldInsn(PUTSTATIC, className, "dynamicInvoker", "Ljava/lang/invoke/MethodHandle;");
+
+            mvClInit.visitInsn(RETURN);
+            mvClInit.visitMaxs(4, 0);
+            mvClInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwConstantBaseImpl.visitMethod(ACC_PUBLIC, "<init>", "(Ljava/lang/Object;)V", "(TT;)V", null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            mvInit.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+            mvInit.visitLdcInsn(Type.getType(Object.class));
+            mvInit.visitVarInsn(ALOAD, 1);
+            mvInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+            mvInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(3, 2);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvGetter = cwConstantBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "get", "()Ljava/lang/Object;", "()TT;", null);
+            mvGetter.visitCode();
+
+            Label tryStart = new Label();
+            Label tryEnd = new Label();
+            Label UncheckedCatchStart = new Label();
+            Label CheckedCatchStart = new Label();
+            mvGetter.visitTryCatchBlock(tryStart, tryEnd, UncheckedCatchStart, "java/lang/RuntimeException");
+            mvGetter.visitTryCatchBlock(tryStart, tryEnd, UncheckedCatchStart, "java/lang/Error");
+            mvGetter.visitTryCatchBlock(tryStart, tryEnd, CheckedCatchStart, "java/lang/Throwable");
+
+            mvGetter.visitFieldInsn(GETSTATIC, className, "dynamicInvoker", "Ljava/lang/invoke/MethodHandle;");
+            mvGetter.visitLabel(tryStart);
+            mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", "()Ljava/lang/Object;", false);
+            mvGetter.visitLabel(tryEnd);
+            mvGetter.visitInsn(ARETURN);
+
+            mvGetter.visitLabel(CheckedCatchStart);
+            mvGetter.visitVarInsn(ASTORE, 1);
+            mvGetter.visitTypeInsn(NEW, "java/lang/RuntimeException");
+            mvGetter.visitInsn(DUP);
+            mvGetter.visitVarInsn(ALOAD, 1);
+            mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/RuntimeException", "<init>", "(Ljava/lang/Throwable;)V", false);
+            mvGetter.visitLabel(UncheckedCatchStart);
+            mvGetter.visitInsn(ATHROW);
+
+            mvGetter.visitMaxs(3, 2);
+            mvGetter.visitEnd();
+        }
+        cwConstantBaseImpl.visitEnd();
+        return cwConstantBaseImpl.toByteArray();
+    }
+
+    protected static byte[] generateMethodHandleBaseImpl(
+            String className,
+            Class<?> delegateAbstractOrInterfaceClass,
+            boolean useInterface,
+            String delegateMethodName,
+            MethodType delegateMethodAndMethodHandleType,
+            boolean sneakyThrows
+    ) {
+        final ClassWriter cwMethodHandleBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final String delegateAbstractOrInterfaceClassName = delegateAbstractOrInterfaceClass.getName().replace('.', '/');
+        final String delegateMethodAndMethodHandleDescriptor = delegateMethodAndMethodHandleType.descriptorString();
+        cwMethodHandleBaseImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                null,
+                useInterface ? "java/lang/Object" : delegateAbstractOrInterfaceClassName,
+                useInterface
+                        ? new String[] { delegateAbstractOrInterfaceClassName }
+                        : null
+        );
+        {
+            final FieldVisitor fvCallSite = cwMethodHandleBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "callSite", "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+        }
+        {
+            final MethodVisitor mvClInit = cwMethodHandleBaseImpl.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+            mvClInit.visitCode();
+
+            mvClInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+            mvClInit.visitInsn(DUP);
+            mvClInit.visitLdcInsn(Type.getMethodType(delegateMethodAndMethodHandleDescriptor));
+            mvClInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodType;)V", false);
+            mvClInit.visitFieldInsn(PUTSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+
+            mvClInit.visitInsn(RETURN);
+            mvClInit.visitMaxs(3, 0);
+            mvClInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwMethodHandleBaseImpl.visitMethod(ACC_PUBLIC, "<init>", "(Ljava/lang/invoke/MethodHandle;)V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, useInterface ? "java/lang/Object" : delegateAbstractOrInterfaceClassName, "<init>", "()V", false);
+
+            mvInit.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+            mvInit.visitVarInsn(ALOAD, 1);
+            mvInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(2, 2);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvInvoker = cwMethodHandleBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, delegateMethodName, delegateMethodAndMethodHandleDescriptor, null, sneakyThrows ? null : new String[] { "java/lang/Throwable" });
+            mvInvoker.visitCode();
+
+            mvInvoker.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+            mvInvoker.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "getTarget", "()Ljava/lang/invoke/MethodHandle;", false);
+            for (int i = 0, slot = 1, count = delegateMethodAndMethodHandleType.parameterCount(); i < count; ++i) {
+                final Class<?> parameterType = delegateMethodAndMethodHandleType.parameterType(i);
+                if (parameterType.isPrimitive()) {
+                    switch (Type.getType(parameterType).getSort()) {
+                        case Type.BOOLEAN:
+                        case Type.BYTE:
+                        case Type.CHAR:
+                        case Type.INT:
+                        case Type.SHORT: {
+                            mvInvoker.visitVarInsn(ILOAD, slot);
+                            slot += 1;
+                            break;
+                        }
+                        case Type.DOUBLE: {
+                            mvInvoker.visitVarInsn(DLOAD, slot);
+                            slot += 2;
+                            break;
+                        }
+                        case Type.FLOAT: {
+                            mvInvoker.visitVarInsn(FLOAD, slot);
+                            slot += 1;
+                            break;
+                        }
+                        case Type.LONG: {
+                            mvInvoker.visitVarInsn(LLOAD, slot);
+                            slot += 2;
+                            break;
+                        }
+                        default: {
+                            throw new AssertionError(parameterType.getName());
+                        }
+                    }
+                } else {
+                    mvInvoker.visitVarInsn(ALOAD, slot);
+                    slot += 1;
+                }
+            }
+            mvInvoker.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", delegateMethodAndMethodHandleDescriptor, false);
+            final Class<?> returnType = delegateMethodAndMethodHandleType.returnType();
+            if (returnType.isPrimitive()) {
+                switch (Type.getType(returnType).getSort()) {
+                    case Type.BOOLEAN:
+                    case Type.BYTE:
+                    case Type.CHAR:
+                    case Type.INT:
+                    case Type.SHORT: {
+                        mvInvoker.visitInsn(IRETURN);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvInvoker.visitInsn(DRETURN);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvInvoker.visitInsn(FRETURN);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvInvoker.visitInsn(LRETURN);
+                        break;
+                    }
+                    case Type.VOID: {
+                        mvInvoker.visitInsn(RETURN);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError(returnType.getName());
+                    }
+                }
+            } else {
+                mvInvoker.visitInsn(ARETURN);
+            }
+
+            mvInvoker.visitMaxs(-1, -1);
+            mvInvoker.visitEnd();
+        }
+        cwMethodHandleBaseImpl.visitEnd();
+        return cwMethodHandleBaseImpl.toByteArray();
     }
 
     private static final int FrecInlineSize = 325;

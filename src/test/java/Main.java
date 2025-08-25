@@ -6,6 +6,7 @@ import java.io.Serializable;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.function.BiFunction;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -14,6 +15,19 @@ public class Main {
     private static final boolean TEST_FINAL_SETTER_IN_RECORD = true;
     private static void a() {
         String ignored = Main.class.getName();
+    }
+    private static void methodHandleRunnerTest() {
+        System.out.println("methodHandleRunnerTest() got call");
+    }
+
+    private static String methodHandleRunnerTest2(String s1, String s2) {
+        System.out.println("methodHandleRunnerTest2() got call, s1 = " + s1 + ", s2 = " + s2);
+        return "methodHandleRunnerTest2() result";
+    }
+
+    private static void methodHandleRunnerTest3() throws Throwable {
+        System.out.println("methodHandleRunnerTest3() got call, throwing Throwable");
+        throw new Throwable();
     }
 
     @SuppressWarnings("deprecation")
@@ -142,6 +156,45 @@ public class Main {
                 System.out.println("record abstract final setter after");
             }
             System.out.println("record abstract after");
+        }
+        {
+            System.out.println("constant base start");
+            System.out.println(Constant.factory.ofBase("owo").orElseThrow());
+            System.out.println(Constant.factory.ofBase("awa").orElseThrow());
+            System.out.println("constant base after");
+        }
+        {
+            System.out.println("method handle base start");
+            Constant.factory.<Runnable>makeBase(
+                    MethodHandles.lookup(),
+                    Runnable.class.getMethod("run", (Class<?>[]) null),
+                    MethodHandles.lookup().findStatic(Main.class, "methodHandleRunnerTest", MethodType.methodType(void.class)),
+                    true
+            ).run();
+            Constant.factory.<BiFunction<Object, Object, Object>>makeBase(
+                    MethodHandles.lookup(),
+                    BiFunction.class.getMethod("apply", Object.class, Object.class),
+                    MethodHandles.lookup().findStatic(Main.class, "methodHandleRunnerTest2", MethodType.methodType(String.class, String.class, String.class))
+                            .asType(MethodType.methodType(Object.class, Object.class, Object.class)),
+                    true
+            ).apply("string 1", "string 5");
+            try {
+                Constant.factory.<Runnable>makeBase(
+                        MethodHandles.lookup(),
+                        Runnable.class.getMethod("run", (Class<?>[]) null),
+                        MethodHandles.lookup().findStatic(Main.class, "methodHandleRunnerTest3", MethodType.methodType(void.class)),
+                        true
+                ).run();
+            } catch (Throwable t) {
+                //noinspection ConstantValue
+                if (t.getClass() == Throwable.class) {
+                    System.out.println("got Throwable from methodHandleRunnerTest3");
+                    t.printStackTrace(System.out);
+                } else {
+                    throw t;
+                }
+            }
+            System.out.println("method handle base after");
         }
         {
             System.out.println("eventbus start");
