@@ -159,8 +159,12 @@ public class Main {
         }
         {
             System.out.println("constant base start");
-            System.out.println(Constant.factory.ofBase("owo").orElseThrow());
-            System.out.println(Constant.factory.ofBase("awa").orElseThrow());
+            DynamicConstant<String> base = Constant.factory.ofBase("owo");
+            System.out.println(base.orElseThrow());
+            base = Constant.factory.ofBase("awa");
+            System.out.println(base.orElseThrow());
+            base.set("qwq");
+            System.out.println(base.orElseThrow());
             System.out.println("constant base after");
         }
         {

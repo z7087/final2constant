@@ -126,12 +126,12 @@ public abstract class ConstantFactory {
         }
     }
 
-    public <T> Constant<T> ofBase(T value) {
+    public <T> DynamicConstant<T> ofBase(T value) {
         try {
             final Class<?> clazz = defineClassAt(MethodHandles.lookup(), generateConstantBaseImpl(ConstantFactory.class.getName().replace('.', '/') + "$ConstantBaseImpl"));
-            final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(Constant.class, Object.class));
+            final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, Object.class)).asType(MethodType.methodType(DynamicConstant.class, Object.class));
             //noinspection unchecked
-            return (Constant<T>) constructorMH.invokeExact((Object) value);
+            return (DynamicConstant<T>) constructorMH.invokeExact((Object) value);
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
@@ -1166,14 +1166,14 @@ public abstract class ConstantFactory {
 
     protected static byte[] generateConstantBaseImpl(String className) {
         final ClassWriter cwConstantBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        final String ConstantClassName = Constant.class.getName().replace('.', '/');
+        final String DynamicConstantClassName = DynamicConstant.class.getName().replace('.', '/');
         cwConstantBaseImpl.visit(V1_8,
                 ACC_PUBLIC | ACC_FINAL,
                 className,
-                "<T:Ljava/lang/Object;>Ljava/lang/Object;L" + ConstantClassName + "<TT;>;",
+                "<T:Ljava/lang/Object;>Ljava/lang/Object;L" + DynamicConstantClassName + "<TT;>;",
                 "java/lang/Object",
                 new String[] {
-                        ConstantClassName
+                        DynamicConstantClassName
                 });
         {
             final FieldVisitor fvCallSite = cwConstantBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "callSite", "Ljava/lang/invoke/CallSite;", null, null);
@@ -1210,14 +1210,12 @@ public abstract class ConstantFactory {
             mvInit.visitVarInsn(ALOAD, 0);
             mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
 
-            mvInit.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
-            mvInit.visitLdcInsn(Type.getType(Object.class));
+            mvInit.visitVarInsn(ALOAD, 0);
             mvInit.visitVarInsn(ALOAD, 1);
-            mvInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
-            mvInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+            mvInit.visitMethodInsn(INVOKEVIRTUAL, className, "set", "(Ljava/lang/Object;)V", false);
 
             mvInit.visitInsn(RETURN);
-            mvInit.visitMaxs(3, 2);
+            mvInit.visitMaxs(2, 2);
             mvInit.visitEnd();
         }
         {
@@ -1249,6 +1247,20 @@ public abstract class ConstantFactory {
 
             mvGetter.visitMaxs(3, 2);
             mvGetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSetter = cwConstantBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "set", "(Ljava/lang/Object;)V", "(TT;)V", null);
+            mvSetter.visitCode();
+
+            mvSetter.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+            mvSetter.visitLdcInsn(Type.getType(Object.class));
+            mvSetter.visitVarInsn(ALOAD, 1);
+            mvSetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+            mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+
+            mvSetter.visitInsn(RETURN);
+            mvSetter.visitMaxs(3, 2);
+            mvSetter.visitEnd();
         }
         cwConstantBaseImpl.visitEnd();
         return cwConstantBaseImpl.toByteArray();
