@@ -159,14 +159,54 @@ public abstract class ConstantFactory {
 
     public <T> T makeBase(
             MethodHandles.Lookup hostClass,
+            Method delegateMethod,
+            MethodHandle mh,
+            String setterMethodName,
+            boolean sneakyThrows
+    ) {
+        @SuppressWarnings("unchecked")
+        final Class<T> delegateAbstractOrInterfaceClass = (Class<T>) delegateMethod.getDeclaringClass();
+        return makeBase(
+                hostClass,
+                delegateAbstractOrInterfaceClass,
+                delegateAbstractOrInterfaceClass.isInterface(),
+                delegateMethod.getName(),
+                mh,
+                setterMethodName,
+                sneakyThrows
+        );
+    }
+
+    public <T> T makeBase(
+            MethodHandles.Lookup hostClass,
             Class<T> delegateAbstractOrInterfaceClass,
             boolean useInterface,
             String delegateMethodName,
             MethodHandle mh,
             boolean sneakyThrows
     ) {
+        return makeBase(
+                hostClass,
+                delegateAbstractOrInterfaceClass,
+                useInterface,
+                delegateMethodName,
+                mh,
+                null,
+                sneakyThrows
+        );
+    }
+
+    public <T> T makeBase(
+            MethodHandles.Lookup hostClass,
+            Class<T> delegateAbstractOrInterfaceClass,
+            boolean useInterface,
+            String delegateMethodName,
+            MethodHandle mh,
+            String setterMethodName,
+            boolean sneakyThrows
+    ) {
         try {
-            final Class<?> clazz = defineClassWithPrivilegeAt(hostClass, generateMethodHandleBaseImpl(hostClass.lookupClass().getName().replace('.', '/') + "$MethodHandleBaseImpl", delegateAbstractOrInterfaceClass, useInterface, delegateMethodName, mh.type(), sneakyThrows));
+            final Class<?> clazz = defineClassWithPrivilegeAt(hostClass, generateMethodHandleBaseImpl(hostClass.lookupClass().getName().replace('.', '/') + "$MethodHandleBaseImpl", delegateAbstractOrInterfaceClass, useInterface, delegateMethodName, mh.type(), setterMethodName, sneakyThrows));
             final MethodHandle constructorMH = hostClass.findConstructor(clazz, MethodType.methodType(void.class, MethodHandle.class)).asType(MethodType.methodType(Object.class, MethodHandle.class));
             return delegateAbstractOrInterfaceClass.cast((Object) constructorMH.invokeExact(mh));
         } catch (RuntimeException | Error e) {
@@ -1266,6 +1306,7 @@ public abstract class ConstantFactory {
             boolean useInterface,
             String delegateMethodName,
             MethodType delegateMethodAndMethodHandleType,
+            String setterMethodName,
             boolean sneakyThrows
     ) {
         final ClassWriter cwMethodHandleBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -1394,6 +1435,18 @@ public abstract class ConstantFactory {
 
             mvInvoker.visitMaxs(-1, -1);
             mvInvoker.visitEnd();
+        }
+        if (setterMethodName != null) {
+            final MethodVisitor mvSetter = cwMethodHandleBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, setterMethodName, "(Ljava/lang/invoke/MethodHandle;)V", null, null);
+            mvSetter.visitCode();
+
+            mvSetter.visitFieldInsn(GETSTATIC, className, "callSite", "Ljava/lang/invoke/CallSite;");
+            mvSetter.visitVarInsn(ALOAD, 1);
+            mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+
+            mvSetter.visitInsn(RETURN);
+            mvSetter.visitMaxs(2, 2);
+            mvSetter.visitEnd();
         }
         cwMethodHandleBaseImpl.visitEnd();
         return cwMethodHandleBaseImpl.toByteArray();

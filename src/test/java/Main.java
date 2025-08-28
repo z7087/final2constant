@@ -30,6 +30,14 @@ public class Main {
         throw new Throwable();
     }
 
+    private static void methodHandleRunnerTest4(String s1, int i2, long l3) {
+        System.out.println("methodHandleRunnerTest4() got call, s1 = " + s1 + ", i2 = " + i2 + ", l3 = " + l3);
+    }
+
+    private static void methodHandleRunnerTest5(String s1, int i2, long l3) {
+        System.out.println("methodHandleRunnerTest5() got call, s1 = " + s1 + ", i2 = " + i2 + ", l3 = " + l3);
+    }
+
     @SuppressWarnings("deprecation")
     public static void main(String[] args) throws Throwable {
         System.out.println("Start with runtime java version " + JavaHelper.CACHED_JAVA_VERSION + (JavaHelper.CACHED_JAVA_VERSION <= 8 ? " or lower" : ""));
@@ -198,6 +206,26 @@ public class Main {
                     throw t;
                 }
             }
+            MethodHandleBaseTest m = Constant.factory.makeBase(
+                    MethodHandles.lookup(),
+                    MethodHandleBaseTest.class.getMethod("invoke", Object[].class),
+                    MethodHandles.lookup().findStatic(Main.class, "methodHandleRunnerTest4", MethodType.methodType(void.class, String.class, int.class, long.class))
+                            .asType(MethodType.methodType(Object.class, String.class, int.class, long.class))
+                            .asSpreader(Object[].class, 3),
+                    "setTarget",
+                    true
+            );
+            System.out.println("method handle base test 4 result: " +
+                    m.invoke("string 1", 25, 311L)
+            );
+            m.setTarget(
+                    MethodHandles.lookup().findStatic(Main.class, "methodHandleRunnerTest5", MethodType.methodType(void.class, String.class, int.class, long.class))
+                            .asType(MethodType.methodType(Object.class, String.class, int.class, long.class))
+                            .asSpreader(Object[].class, 3)
+            );
+            System.out.println("method handle base test 5 result: " +
+                    m.invoke("string 5", 33, 555L)
+            );
             System.out.println("method handle base after");
         }
         {
@@ -295,6 +323,12 @@ public class Main {
         abstract TestRecordAbstract tra();
 
         abstract void tra(TestRecordAbstract value);
+    }
+
+    public interface MethodHandleBaseTest {
+        Object invoke(Object... args);
+
+        void setTarget(MethodHandle target);
     }
 
     @SuppressWarnings("InstantiationOfUtilityClass")
