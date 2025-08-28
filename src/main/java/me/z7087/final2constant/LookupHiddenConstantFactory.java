@@ -57,7 +57,8 @@ class LookupHiddenConstantFactory extends ConstantFactory {
 
     private static final MethodHandle ConstantImplConstructor;
     private static final MethodHandle LazyConstantImplConstructor;
-    private static final MethodHandle DynamicConstantImplConstructor;
+    private static final MethodHandle DynamicMutableConstantImplConstructor;
+    private static final MethodHandle DynamicVolatileConstantImplConstructor;
     private static final boolean valid;
 
     static {
@@ -82,8 +83,10 @@ class LookupHiddenConstantFactory extends ConstantFactory {
                     throw new RuntimeException(e);
                 }
                 try {
-                    Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateDynamicConstantImpl(LHCFClassName + "$DynamicConstantImpl"), true)).lookupClass();
-                    DynamicConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                    Class<?> clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateDynamicConstantImpl(LHCFClassName + "$DynamicConstantImpl", true), true)).lookupClass();
+                    DynamicMutableConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                    clazz = ((MethodHandles.Lookup) MHDefineHiddenClass.invokeExact(lookup, generateDynamicConstantImpl(LHCFClassName + "$DynamicConstantImpl", false), true)).lookupClass();
+                    DynamicVolatileConstantImplConstructor = lookup.findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
                 } catch (RuntimeException | Error e) {
                     throw e;
                 } catch (Throwable e) {
@@ -92,7 +95,7 @@ class LookupHiddenConstantFactory extends ConstantFactory {
             }
             valid = true;
         } else {
-            ConstantImplConstructor = LazyConstantImplConstructor = DynamicConstantImplConstructor = MethodHandles.constant(Object.class, null);
+            ConstantImplConstructor = LazyConstantImplConstructor = DynamicMutableConstantImplConstructor = DynamicVolatileConstantImplConstructor = MethodHandles.constant(Object.class, null);
             valid = false;
         }
     }
@@ -128,7 +131,7 @@ class LookupHiddenConstantFactory extends ConstantFactory {
     public <T> DynamicConstant<T> ofMutable(T value) {
         try {
             //noinspection unchecked
-            return (DynamicConstant<T>) DynamicConstantImplConstructor.invokeExact((CallSite) new MutableCallSite(MethodHandles.constant(Object.class, value)));
+            return (DynamicConstant<T>) DynamicMutableConstantImplConstructor.invokeExact((CallSite) new MutableCallSite(MethodHandles.constant(Object.class, value)));
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
@@ -140,7 +143,7 @@ class LookupHiddenConstantFactory extends ConstantFactory {
     public <T> DynamicConstant<T> ofVolatile(T value) {
         try {
             //noinspection unchecked
-            return (DynamicConstant<T>) DynamicConstantImplConstructor.invokeExact((CallSite) new VolatileCallSite(MethodHandles.constant(Object.class, value)));
+            return (DynamicConstant<T>) DynamicVolatileConstantImplConstructor.invokeExact((CallSite) new VolatileCallSite(MethodHandles.constant(Object.class, value)));
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {

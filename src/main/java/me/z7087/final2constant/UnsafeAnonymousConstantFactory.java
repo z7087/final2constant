@@ -36,7 +36,8 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
 
     private static final MethodHandle ConstantImplConstructor;
     private static final MethodHandle LazyConstantImplConstructor;
-    private static final MethodHandle DynamicConstantImplConstructor;
+    private static final MethodHandle DynamicMutableConstantImplConstructor;
+    private static final MethodHandle DynamicVolatileConstantImplConstructor;
     private static final boolean valid;
 
     static {
@@ -60,8 +61,10 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
                     throw new RuntimeException(e);
                 }
                 try {
-                    Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateDynamicConstantImpl(UACFClassName + "$DynamicConstantImpl"), (Object[]) null);
-                    DynamicConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                    Class<?> clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateDynamicConstantImpl(UACFClassName + "$DynamicConstantImpl", true), (Object[]) null);
+                    DynamicMutableConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
+                    clazz = (Class<?>) MHDefineAnonymousClass.invokeExact(theUnsafe, UnsafeAnonymousConstantFactory.class, generateDynamicConstantImpl(UACFClassName + "$DynamicConstantImpl", false), (Object[]) null);
+                    DynamicVolatileConstantImplConstructor = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class, CallSite.class)).asType(MethodType.methodType(DynamicConstant.class, CallSite.class));
                 } catch (RuntimeException | Error e) {
                     throw e;
                 } catch (Throwable e) {
@@ -70,7 +73,7 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
             }
             valid = true;
         } else {
-            ConstantImplConstructor = LazyConstantImplConstructor = DynamicConstantImplConstructor = MethodHandles.constant(Object.class, null);
+            ConstantImplConstructor = LazyConstantImplConstructor = DynamicMutableConstantImplConstructor = DynamicVolatileConstantImplConstructor = MethodHandles.constant(Object.class, null);
             valid = false;
         }
     }
@@ -109,7 +112,7 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
     public <T> DynamicConstant<T> ofMutable(T value) {
         try {
             //noinspection unchecked
-            return (DynamicConstant<T>) DynamicConstantImplConstructor.invokeExact((CallSite) new MutableCallSite(MethodHandles.constant(Object.class, value)));
+            return (DynamicConstant<T>) DynamicMutableConstantImplConstructor.invokeExact((CallSite) new MutableCallSite(MethodHandles.constant(Object.class, value)));
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
@@ -121,7 +124,7 @@ class UnsafeAnonymousConstantFactory extends ConstantFactory {
     public <T> DynamicConstant<T> ofVolatile(T value) {
         try {
             //noinspection unchecked
-            return (DynamicConstant<T>) DynamicConstantImplConstructor.invokeExact((CallSite) new VolatileCallSite(MethodHandles.constant(Object.class, value)));
+            return (DynamicConstant<T>) DynamicVolatileConstantImplConstructor.invokeExact((CallSite) new VolatileCallSite(MethodHandles.constant(Object.class, value)));
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {

@@ -520,7 +520,7 @@ public abstract class ConstantFactory {
         return cwLazyConstantImpl.toByteArray();
     }
 
-    protected static byte[] generateDynamicConstantImpl(String className) {
+    protected static byte[] generateDynamicConstantImpl(String className, boolean canSync) {
         final ClassWriter cwDynamicConstantImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
         final String DynamicConstantClassName = DynamicConstant.class.getName().replace('.', '/');
         cwDynamicConstantImpl.visit(V1_8,
@@ -605,14 +605,9 @@ public abstract class ConstantFactory {
             mvSetter.visitMaxs(3, 2);
             mvSetter.visitEnd();
         }
-        {
+        if (canSync) {
             final MethodVisitor mvSync = cwDynamicConstantImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "sync", "()V", null, null);
             mvSync.visitCode();
-            mvSync.visitVarInsn(ALOAD, 0);
-            mvSync.visitFieldInsn(GETFIELD, className, "callSite", "Ljava/lang/invoke/CallSite;");
-            mvSync.visitTypeInsn(INSTANCEOF, "java/lang/invoke/MutableCallSite");
-            Label End = new Label();
-            mvSync.visitJumpInsn(IFEQ, End);
 
             mvSync.visitInsn(ICONST_1);
             mvSync.visitTypeInsn(ANEWARRAY, "java/lang/invoke/MutableCallSite");
@@ -624,9 +619,8 @@ public abstract class ConstantFactory {
             mvSync.visitInsn(AASTORE);
             mvSync.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MutableCallSite", "syncAll", "([Ljava/lang/invoke/MutableCallSite;)V", false);
 
-            mvSync.visitLabel(End);
             mvSync.visitInsn(RETURN);
-            mvSync.visitMaxs(3, 2);
+            mvSync.visitMaxs(4, 1);
             mvSync.visitEnd();
         }
         cwDynamicConstantImpl.visitEnd();
