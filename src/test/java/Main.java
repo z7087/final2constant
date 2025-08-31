@@ -1,4 +1,5 @@
 import me.z7087.final2constant.Constant;
+import me.z7087.final2constant.ConstantArray;
 import me.z7087.final2constant.DynamicConstant;
 import me.z7087.final2constant.util.JavaHelper;
 
@@ -227,6 +228,23 @@ public class Main {
                     m.invoke("string 5", 33, 555L)
             );
             System.out.println("method handle base after");
+        }
+        {
+            System.out.println("array start");
+            @SuppressWarnings("unchecked")
+            ConstantArray<String> array = (ConstantArray<String>) Constant.factory.ofArrayConstructor(10).invokeExact();
+            array.set(0, "hi");
+            array.set(9, "ih");
+            System.out.println("array[0] = " + array.get(0) + ", array[1] = " + array.get(1) + ", array[9] = " + array.get(9));
+            System.out.println("array after");
+        }
+        {
+            System.out.println("array base start");
+            ConstantArray<String> array = Constant.factory.ofArrayBase(10);
+            array.set(0, "owo");
+            array.set(9, "awa");
+            System.out.println("array[0] = " + array.get(0) + ", array[1] = " + array.get(1) + ", array[9] = " + array.get(9));
+            System.out.println("array base after");
         }
         {
             System.out.println("eventbus start");

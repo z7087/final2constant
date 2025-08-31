@@ -216,6 +216,37 @@ public abstract class ConstantFactory {
         }
     }
 
+    public MethodHandle ofArrayConstructor(int size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("array size too small: " + size);
+        }
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generateArrayImpl(ConstantFactory.class.getName().replace('.', '/') + "$ArrayImpl", size));
+            return MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(ConstantArray.class));
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public <T> ConstantArray<T> ofArrayBase(int size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("array size too small: " + size);
+        }
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generateArrayImpl(ConstantFactory.class.getName().replace('.', '/') + "$ArrayBaseImpl", size));
+            final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(ConstantArray.class));
+            @SuppressWarnings("unchecked")
+            final ConstantArray<T> result = (ConstantArray<T>) constructorMH.invokeExact();
+            return result;
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // super slow for unknown reason
     @Deprecated
     public <T, E, R, TE extends Throwable> T ofEventBus(MethodHandles.Lookup hostClass,
@@ -1450,6 +1481,364 @@ public abstract class ConstantFactory {
         }
         cwMethodHandleBaseImpl.visitEnd();
         return cwMethodHandleBaseImpl.toByteArray();
+    }
+
+    protected static byte[] generateArrayImpl(
+            String className,
+            int size
+    ) {
+        final ClassWriter cwArrayImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final String ConstantArrayClassName = ConstantArray.class.getName().replace('.', '/');
+        cwArrayImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                "<T:Ljava/lang/Object;>Ljava/lang/Object;L" + ConstantArrayClassName + "<TT;>;",
+                "java/lang/Object",
+                new String[] { ConstantArrayClassName }
+        );
+        for (int i = 0; i < size; ++i) {
+            final FieldVisitor fvCallSite = cwArrayImpl.visitField(ACC_PRIVATE | ACC_FINAL, "callSite$" + i, "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+            final FieldVisitor fvDynamicInvoker = cwArrayImpl.visitField(ACC_PRIVATE | ACC_FINAL, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;", null, null);
+            fvDynamicInvoker.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwArrayImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            for (int i = 0; i < size; ++i) {
+
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+                mvInit.visitInsn(DUP);
+                mvInit.visitLdcInsn(Type.getType(Object.class));
+                mvInit.visitInsn(ACONST_NULL);
+                mvInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvInit.visitFieldInsn(PUTFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitFieldInsn(GETFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                mvInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false);
+                mvInit.visitFieldInsn(PUTFIELD, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+            }
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(5, 1);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvGetter = cwArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "get", "(I)Ljava/lang/Object;", "(I)TT;", null);
+            mvGetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvGetter.visitVarInsn(ILOAD, 1);
+            mvGetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvGetter.visitLabel(elements[i]);
+                mvGetter.visitVarInsn(ALOAD, 0);
+                mvGetter.visitFieldInsn(GETFIELD, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", "()Ljava/lang/Object;", false);
+                mvGetter.visitInsn(ARETURN);
+            }
+            {
+                mvGetter.visitLabel(elementNotFound);
+                mvGetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvGetter.visitLdcInsn("Index ");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitVarInsn(ILOAD, 1);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitLdcInsn(" out of bounds for length " + size);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvGetter.visitInsn(ATHROW);
+            }
+
+            mvGetter.visitMaxs(4, 2);
+            mvGetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSetter = cwArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "set", "(ILjava/lang/Object;)V", "(ITT;)V", null);
+            mvSetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvSetter.visitVarInsn(ILOAD, 1);
+            mvSetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvSetter.visitLabel(elements[i]);
+                mvSetter.visitVarInsn(ALOAD, 0);
+                mvSetter.visitFieldInsn(GETFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                mvSetter.visitLdcInsn(Type.getType(Object.class));
+                mvSetter.visitVarInsn(ALOAD, 2);
+                mvSetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvSetter.visitInsn(RETURN);
+            }
+            {
+                mvSetter.visitLabel(elementNotFound);
+                mvSetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvSetter.visitLdcInsn("Index ");
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitVarInsn(ILOAD, 1);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitLdcInsn(" out of bounds for length " + size);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvSetter.visitInsn(ATHROW);
+            }
+
+            mvSetter.visitMaxs(4, 3);
+            mvSetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSize = cwArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "size", "()I", null, null);
+            mvSize.visitCode();
+
+            switch (size) {
+                case 0: {
+                    // ???
+                    mvSize.visitInsn(ICONST_0);
+                    break;
+                }
+                case 1: {
+                    mvSize.visitInsn(ICONST_1);
+                    break;
+                }
+                case 2: {
+                    mvSize.visitInsn(ICONST_2);
+                    break;
+                }
+                case 3: {
+                    mvSize.visitInsn(ICONST_3);
+                    break;
+                }
+                case 4: {
+                    mvSize.visitInsn(ICONST_4);
+                    break;
+                }
+                case 5: {
+                    mvSize.visitInsn(ICONST_5);
+                    break;
+                }
+                default: {
+                    if (size <= Byte.MAX_VALUE) {
+                        mvSize.visitIntInsn(BIPUSH, size);
+                    } else if (size <= Short.MAX_VALUE) {
+                        mvSize.visitIntInsn(SIPUSH, size);
+                    } else {
+                        mvSize.visitLdcInsn(size);
+                    }
+                }
+            }
+            mvSize.visitInsn(IRETURN);
+
+            mvSize.visitMaxs(1, 1);
+            mvSize.visitEnd();
+        }
+        cwArrayImpl.visitEnd();
+        return cwArrayImpl.toByteArray();
+    }
+
+    protected static byte[] generateArrayBaseImpl(
+            String className,
+            int size
+    ) {
+        final ClassWriter cwArrayBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final String ConstantArrayClassName = ConstantArray.class.getName().replace('.', '/');
+        cwArrayBaseImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                "<T:Ljava/lang/Object;>Ljava/lang/Object;L" + ConstantArrayClassName + "<TT;>;",
+                "java/lang/Object",
+                new String[] { ConstantArrayClassName }
+        );
+        for (int i = 0; i < size; ++i) {
+            final FieldVisitor fvCallSite = cwArrayBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "callSite$" + i, "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+            final FieldVisitor fvDynamicInvoker = cwArrayBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;", null, null);
+            fvDynamicInvoker.visitEnd();
+        }
+        {
+            final MethodVisitor mvClInit = cwArrayBaseImpl.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+            mvClInit.visitCode();
+
+            for (int i = 0; i < size; ++i) {
+
+                mvClInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+                mvClInit.visitInsn(DUP);
+                mvClInit.visitLdcInsn(Type.getType(Object.class));
+                mvClInit.visitInsn(ACONST_NULL);
+                mvClInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvClInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvClInit.visitInsn(DUP);
+                mvClInit.visitFieldInsn(PUTSTATIC, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+
+                mvClInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false);
+                mvClInit.visitFieldInsn(PUTSTATIC, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+            }
+
+            mvClInit.visitInsn(RETURN);
+            mvClInit.visitMaxs(4, 0);
+            mvClInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwArrayBaseImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(1, 1);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvGetter = cwArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "get", "(I)Ljava/lang/Object;", "(I)TT;", null);
+            mvGetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvGetter.visitVarInsn(ILOAD, 1);
+            mvGetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvGetter.visitLabel(elements[i]);
+                mvGetter.visitFieldInsn(GETSTATIC, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", "()Ljava/lang/Object;", false);
+                mvGetter.visitInsn(ARETURN);
+            }
+            {
+                mvGetter.visitLabel(elementNotFound);
+                mvGetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvGetter.visitLdcInsn("Index ");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitVarInsn(ILOAD, 1);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitLdcInsn(" out of bounds for length " + size);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvGetter.visitInsn(ATHROW);
+            }
+
+            mvGetter.visitMaxs(4, 2);
+            mvGetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSetter = cwArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "set", "(ILjava/lang/Object;)V", "(ITT;)V", null);
+            mvSetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvSetter.visitVarInsn(ILOAD, 1);
+            mvSetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvSetter.visitLabel(elements[i]);
+                mvSetter.visitFieldInsn(GETSTATIC, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                mvSetter.visitLdcInsn(Type.getType(Object.class));
+                mvSetter.visitVarInsn(ALOAD, 2);
+                mvSetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvSetter.visitInsn(RETURN);
+            }
+            {
+                mvSetter.visitLabel(elementNotFound);
+                mvSetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvSetter.visitLdcInsn("Index ");
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitVarInsn(ILOAD, 1);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitLdcInsn(" out of bounds for length " + size);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvSetter.visitInsn(ATHROW);
+            }
+
+            mvSetter.visitMaxs(4, 3);
+            mvSetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSize = cwArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "size", "()I", null, null);
+            mvSize.visitCode();
+
+            switch (size) {
+                case 0: {
+                    mvSize.visitInsn(ICONST_0);
+                    break;
+                }
+                case 1: {
+                    mvSize.visitInsn(ICONST_1);
+                    break;
+                }
+                case 2: {
+                    mvSize.visitInsn(ICONST_2);
+                    break;
+                }
+                case 3: {
+                    mvSize.visitInsn(ICONST_3);
+                    break;
+                }
+                case 4: {
+                    mvSize.visitInsn(ICONST_4);
+                    break;
+                }
+                case 5: {
+                    mvSize.visitInsn(ICONST_5);
+                    break;
+                }
+                default: {
+                    if (size <= Byte.MAX_VALUE) {
+                        mvSize.visitIntInsn(BIPUSH, size);
+                    } else if (size <= Short.MAX_VALUE) {
+                        mvSize.visitIntInsn(SIPUSH, size);
+                    } else {
+                        mvSize.visitLdcInsn(size);
+                    }
+                }
+            }
+            mvSize.visitInsn(IRETURN);
+
+            mvSize.visitMaxs(1, 1);
+            mvSize.visitEnd();
+        }
+        cwArrayBaseImpl.visitEnd();
+        return cwArrayBaseImpl.toByteArray();
     }
 
     private static final int FrecInlineSize = 325;
