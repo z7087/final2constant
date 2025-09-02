@@ -1,6 +1,8 @@
 import me.z7087.final2constant.Constant;
 import me.z7087.final2constant.ConstantArray;
 import me.z7087.final2constant.DynamicConstant;
+import me.z7087.final2constant.primitives.AbstractPrimitiveConstantArray;
+import me.z7087.final2constant.primitives.IntConstantArray;
 import me.z7087.final2constant.util.JavaHelper;
 
 import java.io.Serializable;
@@ -239,12 +241,29 @@ public class Main {
             System.out.println("array after");
         }
         {
+            System.out.println("primitive array start");
+            @SuppressWarnings("unchecked")
+            IntConstantArray array = (IntConstantArray) ((AbstractPrimitiveConstantArray<Integer>) Constant.factory.ofPrimitiveArrayConstructor(10, int.class).invokeExact());
+            array.setInt(0, 123);
+            array.setInt(9, 457);
+            System.out.println("array[0] = " + array.getInt(0) + ", array[1] = " + array.getInt(1) + ", array[9] = " + array.getInt(9));
+            System.out.println("primitive array after");
+        }
+        {
             System.out.println("array base start");
             ConstantArray<String> array = Constant.factory.ofArrayBase(10);
             array.set(0, "owo");
             array.set(9, "awa");
             System.out.println("array[0] = " + array.get(0) + ", array[1] = " + array.get(1) + ", array[9] = " + array.get(9));
             System.out.println("array base after");
+        }
+        {
+            System.out.println("primitive array base start");
+            IntConstantArray array = (IntConstantArray) (Constant.factory.<Integer>ofPrimitiveArrayBase(10, int.class));
+            array.setInt(0, 123);
+            array.setInt(9, 457);
+            System.out.println("array[0] = " + array.getInt(0) + ", array[1] = " + array.getInt(1) + ", array[9] = " + array.getInt(9));
+            System.out.println("primitive array base after");
         }
         {
             System.out.println("eventbus start");

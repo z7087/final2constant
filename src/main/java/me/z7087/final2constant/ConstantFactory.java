@@ -1,5 +1,6 @@
 package me.z7087.final2constant;
 
+import me.z7087.final2constant.primitives.*;
 import me.z7087.final2constant.util.StringReuseHelper;
 import org.objectweb.asm.*;
 
@@ -217,7 +218,7 @@ public abstract class ConstantFactory {
     }
 
     public MethodHandle ofArrayConstructor(int size) {
-        if (size < 0) {
+        if (size <= 0) {
             throw new IllegalArgumentException("array size too small: " + size);
         }
         try {
@@ -230,15 +231,52 @@ public abstract class ConstantFactory {
         }
     }
 
+    public MethodHandle ofPrimitiveArrayConstructor(int size, Class<?> primitiveType) {
+        if (size <= 0) {
+            throw new IllegalArgumentException("array size too small: " + size);
+        }
+        if (!primitiveType.isPrimitive() || primitiveType == void.class) {
+            throw new IllegalArgumentException("don't know how to use type as primitive array: " + primitiveType);
+        }
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generatePrimitiveArrayImpl(ConstantFactory.class.getName().replace('.', '/') + "$" + getPrimitiveTypeName(primitiveType) + "ArrayImpl", size, primitiveType));
+            return MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(AbstractPrimitiveConstantArray.class));
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public <T> ConstantArray<T> ofArrayBase(int size) {
-        if (size < 0) {
+        if (size <= 0) {
             throw new IllegalArgumentException("array size too small: " + size);
         }
         try {
-            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generateArrayImpl(ConstantFactory.class.getName().replace('.', '/') + "$ArrayBaseImpl", size));
+            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generateArrayBaseImpl(ConstantFactory.class.getName().replace('.', '/') + "$ArrayBaseImpl", size));
             final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(ConstantArray.class));
             @SuppressWarnings("unchecked")
             final ConstantArray<T> result = (ConstantArray<T>) constructorMH.invokeExact();
+            return result;
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public <T> AbstractPrimitiveConstantArray<T> ofPrimitiveArrayBase(int size, Class<?> primitiveType) {
+        if (size <= 0) {
+            throw new IllegalArgumentException("array size too small: " + size);
+        }
+        if (!primitiveType.isPrimitive() || primitiveType == void.class) {
+            throw new IllegalArgumentException("don't know how to use type as primitive array: " + primitiveType);
+        }
+        try {
+            final Class<?> clazz = defineClassWithPrivilegeAt(MethodHandles.lookup(), generatePrimitiveArrayBaseImpl(ConstantFactory.class.getName().replace('.', '/') + "$" + getPrimitiveTypeName(primitiveType) + "ArrayBaseImpl", size, primitiveType));
+            final MethodHandle constructorMH = MethodHandles.lookup().findConstructor(clazz, MethodType.methodType(void.class)).asType(MethodType.methodType(AbstractPrimitiveConstantArray.class));
+            @SuppressWarnings("unchecked")
+            final AbstractPrimitiveConstantArray<T> result = (AbstractPrimitiveConstantArray<T>) constructorMH.invokeExact();
             return result;
         } catch (RuntimeException | Error e) {
             throw e;
@@ -1661,6 +1699,261 @@ public abstract class ConstantFactory {
         return cwArrayImpl.toByteArray();
     }
 
+    protected static byte[] generatePrimitiveArrayImpl(
+            String className,
+            int size,
+            Class<?> primitiveType
+    ) {
+        final ClassWriter cwPrimitiveArrayImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final int primitiveTypeSort = Type.getType(primitiveType).getSort();
+        final String primitiveTypeDescriptor = Type.getDescriptor(primitiveType);
+        final String methodNameSuffix = getPrimitiveTypeName(primitiveType);
+        final String PrimitiveConstantArrayClassName = getPrimitiveConstantArrayClass(primitiveType).getName().replace('.', '/');
+        cwPrimitiveArrayImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                null,
+                "java/lang/Object",
+                new String[] { PrimitiveConstantArrayClassName }
+        );
+        for (int i = 0; i < size; ++i) {
+            final FieldVisitor fvCallSite = cwPrimitiveArrayImpl.visitField(ACC_PRIVATE | ACC_FINAL, "callSite$" + i, "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+            final FieldVisitor fvDynamicInvoker = cwPrimitiveArrayImpl.visitField(ACC_PRIVATE | ACC_FINAL, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;", null, null);
+            fvDynamicInvoker.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwPrimitiveArrayImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            for (int i = 0; i < size; ++i) {
+
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+                mvInit.visitInsn(DUP);
+                pushPrimitiveTypeOnStack(primitiveType, mvInit);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvInit.visitInsn(ICONST_0);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvInit.visitInsn(FCONST_0);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvInit.visitInsn(LCONST_0);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvInit.visitInsn(DCONST_0);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+                wrapPrimitiveOnStack(primitiveType, mvInit);
+                mvInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvInit.visitFieldInsn(PUTFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitVarInsn(ALOAD, 0);
+                mvInit.visitFieldInsn(GETFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                mvInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false);
+                mvInit.visitFieldInsn(PUTFIELD, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+            }
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(-1, 1);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvGetter = cwPrimitiveArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "get" + methodNameSuffix, "(I)" + primitiveTypeDescriptor, null, null);
+            mvGetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvGetter.visitVarInsn(ILOAD, 1);
+            mvGetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvGetter.visitLabel(elements[i]);
+                mvGetter.visitVarInsn(ALOAD, 0);
+                mvGetter.visitFieldInsn(GETFIELD, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", "()" + primitiveTypeDescriptor, false);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvGetter.visitInsn(IRETURN);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvGetter.visitInsn(FRETURN);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvGetter.visitInsn(LRETURN);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvGetter.visitInsn(DRETURN);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+            }
+            {
+                mvGetter.visitLabel(elementNotFound);
+                mvGetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvGetter.visitLdcInsn("Index ");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitVarInsn(ILOAD, 1);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitLdcInsn(" out of bounds for length " + size);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvGetter.visitInsn(ATHROW);
+            }
+
+            mvGetter.visitMaxs(-1, 2);
+            mvGetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSetter = cwPrimitiveArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "set" + methodNameSuffix, "(I" + primitiveTypeDescriptor + ")V", null, null);
+            mvSetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvSetter.visitVarInsn(ILOAD, 1);
+            mvSetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvSetter.visitLabel(elements[i]);
+                mvSetter.visitVarInsn(ALOAD, 0);
+                mvSetter.visitFieldInsn(GETFIELD, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                pushPrimitiveTypeOnStack(primitiveType, mvSetter);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvSetter.visitVarInsn(ILOAD, 2);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvSetter.visitVarInsn(FLOAD, 2);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvSetter.visitVarInsn(LLOAD, 2);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvSetter.visitVarInsn(DLOAD, 2);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+                wrapPrimitiveOnStack(primitiveType, mvSetter);
+                mvSetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvSetter.visitInsn(RETURN);
+            }
+            {
+                mvSetter.visitLabel(elementNotFound);
+                mvSetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvSetter.visitLdcInsn("Index ");
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitVarInsn(ILOAD, 1);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitLdcInsn(" out of bounds for length " + size);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvSetter.visitInsn(ATHROW);
+            }
+
+            mvSetter.visitMaxs(-1, -1);
+            mvSetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSize = cwPrimitiveArrayImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "size", "()I", null, null);
+            mvSize.visitCode();
+
+            switch (size) {
+                case 0: {
+                    mvSize.visitInsn(ICONST_0);
+                    break;
+                }
+                case 1: {
+                    mvSize.visitInsn(ICONST_1);
+                    break;
+                }
+                case 2: {
+                    mvSize.visitInsn(ICONST_2);
+                    break;
+                }
+                case 3: {
+                    mvSize.visitInsn(ICONST_3);
+                    break;
+                }
+                case 4: {
+                    mvSize.visitInsn(ICONST_4);
+                    break;
+                }
+                case 5: {
+                    mvSize.visitInsn(ICONST_5);
+                    break;
+                }
+                default: {
+                    if (size <= Byte.MAX_VALUE) {
+                        mvSize.visitIntInsn(BIPUSH, size);
+                    } else if (size <= Short.MAX_VALUE) {
+                        mvSize.visitIntInsn(SIPUSH, size);
+                    } else {
+                        mvSize.visitLdcInsn(size);
+                    }
+                }
+            }
+            mvSize.visitInsn(IRETURN);
+
+            mvSize.visitMaxs(1, 1);
+            mvSize.visitEnd();
+        }
+        cwPrimitiveArrayImpl.visitEnd();
+        return cwPrimitiveArrayImpl.toByteArray();
+    }
+
     protected static byte[] generateArrayBaseImpl(
             String className,
             int size
@@ -1839,6 +2132,264 @@ public abstract class ConstantFactory {
         }
         cwArrayBaseImpl.visitEnd();
         return cwArrayBaseImpl.toByteArray();
+    }
+
+    protected static byte[] generatePrimitiveArrayBaseImpl(
+            String className,
+            int size,
+            Class<?> primitiveType
+    ) {
+        final ClassWriter cwPrimitiveArrayBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        final int primitiveTypeSort = Type.getType(primitiveType).getSort();
+        final String primitiveTypeDescriptor = Type.getDescriptor(primitiveType);
+        final String methodNameSuffix = getPrimitiveTypeName(primitiveType);
+        final String PrimitiveConstantArrayClassName = getPrimitiveConstantArrayClass(primitiveType).getName().replace('.', '/');
+        cwPrimitiveArrayBaseImpl.visit(V1_8,
+                ACC_PUBLIC | ACC_FINAL,
+                className,
+                null,
+                "java/lang/Object",
+                new String[] { PrimitiveConstantArrayClassName }
+        );
+        for (int i = 0; i < size; ++i) {
+            final FieldVisitor fvCallSite = cwPrimitiveArrayBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "callSite$" + i, "Ljava/lang/invoke/CallSite;", null, null);
+            fvCallSite.visitEnd();
+            final FieldVisitor fvDynamicInvoker = cwPrimitiveArrayBaseImpl.visitField(ACC_PRIVATE | ACC_STATIC | ACC_FINAL, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;", null, null);
+            fvDynamicInvoker.visitEnd();
+        }
+        {
+            final MethodVisitor mvClInit = cwPrimitiveArrayBaseImpl.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+            mvClInit.visitCode();
+
+            for (int i = 0; i < size; ++i) {
+
+                mvClInit.visitTypeInsn(NEW, "java/lang/invoke/VolatileCallSite");
+                mvClInit.visitInsn(DUP);
+                pushPrimitiveTypeOnStack(primitiveType, mvClInit);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvClInit.visitInsn(ICONST_0);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvClInit.visitInsn(FCONST_0);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvClInit.visitInsn(LCONST_0);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvClInit.visitInsn(DCONST_0);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+                wrapPrimitiveOnStack(primitiveType, mvClInit);
+                mvClInit.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvClInit.visitMethodInsn(INVOKESPECIAL, "java/lang/invoke/VolatileCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvClInit.visitInsn(DUP);
+                mvClInit.visitFieldInsn(PUTSTATIC, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+
+                mvClInit.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false);
+                mvClInit.visitFieldInsn(PUTSTATIC, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+            }
+
+            mvClInit.visitInsn(RETURN);
+            mvClInit.visitMaxs(-1, 0);
+            mvClInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvInit = cwPrimitiveArrayBaseImpl.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+            mvInit.visitCode();
+
+            mvInit.visitVarInsn(ALOAD, 0);
+            mvInit.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            mvInit.visitInsn(RETURN);
+            mvInit.visitMaxs(1, 1);
+            mvInit.visitEnd();
+        }
+        {
+            final MethodVisitor mvGetter = cwPrimitiveArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "get" + methodNameSuffix, "(I)" + primitiveTypeDescriptor, null, null);
+            mvGetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvGetter.visitVarInsn(ILOAD, 1);
+            mvGetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvGetter.visitLabel(elements[i]);
+                mvGetter.visitFieldInsn(GETSTATIC, className, "dynamicInvoker$" + i, "Ljava/lang/invoke/MethodHandle;");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", "()" + primitiveTypeDescriptor, false);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvGetter.visitInsn(IRETURN);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvGetter.visitInsn(FRETURN);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvGetter.visitInsn(LRETURN);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvGetter.visitInsn(DRETURN);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+            }
+            {
+                mvGetter.visitLabel(elementNotFound);
+                mvGetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvGetter.visitInsn(DUP);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvGetter.visitLdcInsn("Index ");
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitVarInsn(ILOAD, 1);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitLdcInsn(" out of bounds for length " + size);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvGetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvGetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvGetter.visitInsn(ATHROW);
+            }
+
+            mvGetter.visitMaxs(-1, 2);
+            mvGetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSetter = cwPrimitiveArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "set" + methodNameSuffix, "(I" + primitiveTypeDescriptor + ")V", null, null);
+            mvSetter.visitCode();
+
+            Label elementNotFound = new Label();
+            Label[] elements = new Label[size];
+            for (int i = 0; i < size; ++i) {
+                elements[i] = new Label();
+            }
+            mvSetter.visitVarInsn(ILOAD, 1);
+            mvSetter.visitTableSwitchInsn(0, size - 1, elementNotFound, elements);
+            for (int i = 0; i < size; ++i) {
+                mvSetter.visitLabel(elements[i]);
+                mvSetter.visitFieldInsn(GETSTATIC, className, "callSite$" + i, "Ljava/lang/invoke/CallSite;");
+                pushPrimitiveTypeOnStack(primitiveType, mvSetter);
+                switch (primitiveTypeSort) {
+                    case Type.BOOLEAN:
+                    case Type.CHAR:
+                    case Type.BYTE:
+                    case Type.SHORT:
+                    case Type.INT: {
+                        mvSetter.visitVarInsn(ILOAD, 2);
+                        break;
+                    }
+                    case Type.FLOAT: {
+                        mvSetter.visitVarInsn(FLOAD, 2);
+                        break;
+                    }
+                    case Type.LONG: {
+                        mvSetter.visitVarInsn(LLOAD, 2);
+                        break;
+                    }
+                    case Type.DOUBLE: {
+                        mvSetter.visitVarInsn(DLOAD, 2);
+                        break;
+                    }
+                    default: {
+                        throw new AssertionError();
+                    }
+                }
+                wrapPrimitiveOnStack(primitiveType, mvSetter);
+                mvSetter.visitMethodInsn(INVOKESTATIC, "java/lang/invoke/MethodHandles", "constant", "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "setTarget", "(Ljava/lang/invoke/MethodHandle;)V", false);
+                mvSetter.visitInsn(RETURN);
+            }
+            {
+                mvSetter.visitLabel(elementNotFound);
+                mvSetter.visitTypeInsn(NEW, "java/lang/ArrayIndexOutOfBoundsException");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                mvSetter.visitInsn(DUP);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+                mvSetter.visitLdcInsn("Index ");
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitVarInsn(ILOAD, 1);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(I)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitLdcInsn(" out of bounds for length " + size);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+                mvSetter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
+                mvSetter.visitMethodInsn(INVOKESPECIAL, "java/lang/ArrayIndexOutOfBoundsException", "<init>", "(Ljava/lang/String;)V", false);
+                mvSetter.visitInsn(ATHROW);
+            }
+
+            mvSetter.visitMaxs(-1, -1);
+            mvSetter.visitEnd();
+        }
+        {
+            final MethodVisitor mvSize = cwPrimitiveArrayBaseImpl.visitMethod(ACC_PUBLIC | ACC_FINAL, "size", "()I", null, null);
+            mvSize.visitCode();
+
+            switch (size) {
+                case 0: {
+                    mvSize.visitInsn(ICONST_0);
+                    break;
+                }
+                case 1: {
+                    mvSize.visitInsn(ICONST_1);
+                    break;
+                }
+                case 2: {
+                    mvSize.visitInsn(ICONST_2);
+                    break;
+                }
+                case 3: {
+                    mvSize.visitInsn(ICONST_3);
+                    break;
+                }
+                case 4: {
+                    mvSize.visitInsn(ICONST_4);
+                    break;
+                }
+                case 5: {
+                    mvSize.visitInsn(ICONST_5);
+                    break;
+                }
+                default: {
+                    if (size <= Byte.MAX_VALUE) {
+                        mvSize.visitIntInsn(BIPUSH, size);
+                    } else if (size <= Short.MAX_VALUE) {
+                        mvSize.visitIntInsn(SIPUSH, size);
+                    } else {
+                        mvSize.visitLdcInsn(size);
+                    }
+                }
+            }
+            mvSize.visitInsn(IRETURN);
+
+            mvSize.visitMaxs(1, 1);
+            mvSize.visitEnd();
+        }
+        cwPrimitiveArrayBaseImpl.visitEnd();
+        return cwPrimitiveArrayBaseImpl.toByteArray();
     }
 
     private static final int FrecInlineSize = 325;
@@ -2618,6 +3169,173 @@ public abstract class ConstantFactory {
                 break;
             default:
                 mv.visitMethodInsn(INVOKESTATIC, "java/util/Objects", "hashCode", "(Ljava/lang/Object;)I", false);
+        }
+    }
+
+    protected static String getPrimitiveTypeName(Class<?> primitiveType) {
+        if (!primitiveType.isPrimitive()) {
+            throw new IllegalArgumentException("Not primitive");
+        }
+        switch (Type.getType(primitiveType).getSort()) {
+            case Type.BOOLEAN: {
+                return "Boolean";
+            }
+            case Type.CHAR: {
+                return "Char";
+            }
+            case Type.BYTE: {
+                return "Byte";
+            }
+            case Type.SHORT: {
+                return "Short";
+            }
+            case Type.INT: {
+                return "Int";
+            }
+            case Type.FLOAT: {
+                return "Float";
+            }
+            case Type.LONG: {
+                return "Long";
+            }
+            case Type.DOUBLE: {
+                return "Double";
+            }
+            case Type.VOID: {
+                return "Void";
+            }
+            default: {
+                throw new AssertionError();
+            }
+        }
+    }
+
+    protected static Class<? extends AbstractPrimitiveConstantArray<?>> getPrimitiveConstantArrayClass(Class<?> primitiveType) {
+        if (!primitiveType.isPrimitive()) {
+            throw new IllegalArgumentException("Not primitive");
+        } else if (primitiveType == void.class) {
+            throw new IllegalArgumentException("Void");
+        }
+        switch (Type.getType(primitiveType).getSort()) {
+            case Type.BOOLEAN: {
+                return BooleanConstantArray.class;
+            }
+            case Type.CHAR: {
+                return CharConstantArray.class;
+            }
+            case Type.BYTE: {
+                return ByteConstantArray.class;
+            }
+            case Type.SHORT: {
+                return ShortConstantArray.class;
+            }
+            case Type.INT: {
+                return IntConstantArray.class;
+            }
+            case Type.FLOAT: {
+                return FloatConstantArray.class;
+            }
+            case Type.LONG: {
+                return LongConstantArray.class;
+            }
+            case Type.DOUBLE: {
+                return DoubleConstantArray.class;
+            }
+            default: {
+                throw new AssertionError();
+            }
+        }
+    }
+
+    protected static void wrapPrimitiveOnStack(Class<?> primitiveType, MethodVisitor mv) {
+        if (!primitiveType.isPrimitive()) {
+            throw new IllegalArgumentException("Not primitive");
+        } else if (primitiveType == void.class) {
+            throw new IllegalArgumentException("Void");
+        }
+        switch (Type.getType(primitiveType).getSort()) {
+            case Type.BOOLEAN: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                return;
+            }
+            case Type.CHAR: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false);
+                return;
+            }
+            case Type.BYTE: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false);
+                return;
+            }
+            case Type.SHORT: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false);
+                return;
+            }
+            case Type.INT: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                return;
+            }
+            case Type.FLOAT: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false);
+                return;
+            }
+            case Type.LONG: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
+                return;
+            }
+            case Type.DOUBLE: {
+                mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                return;
+            }
+            default: {
+                throw new AssertionError();
+            }
+        }
+    }
+
+    protected static void pushPrimitiveTypeOnStack(Class<?> primitiveType, MethodVisitor mv) {
+        if (!primitiveType.isPrimitive()) {
+            throw new IllegalArgumentException("Not primitive");
+        }
+        switch (Type.getType(primitiveType).getSort()) {
+            case Type.BOOLEAN: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Boolean", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.CHAR: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Character", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.BYTE: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Byte", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.SHORT: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Short", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.INT: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Integer", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.FLOAT: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Float", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.LONG: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Long", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.DOUBLE: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Double", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            case Type.VOID: {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/Void", "TYPE", "Ljava/lang/Class;");
+                return;
+            }
+            default: {
+                throw new AssertionError();
+            }
         }
     }
 }
