@@ -1,5 +1,7 @@
 package me.z7087.final2constant.primitives;
 
+import java.util.function.IntFunction;
+
 public interface CharConstantArray extends AbstractPrimitiveConstantArray<Character> {
 
     @Deprecated
@@ -17,4 +19,13 @@ public interface CharConstantArray extends AbstractPrimitiveConstantArray<Charac
     }
 
     void setChar(int index, char value);
+
+    default char[] toCharArray(IntFunction<char[]> generator) {
+        final int size = size();
+        final char[] array = generator.apply(size);
+        for (int i = 0; i < size; ++i) {
+            array[i] = getChar(i);
+        }
+        return array;
+    }
 }

@@ -1,5 +1,7 @@
 package me.z7087.final2constant.primitives;
 
+import java.util.function.IntFunction;
+
 public interface FloatConstantArray extends AbstractPrimitiveConstantArray<Float> {
 
     @Deprecated
@@ -17,4 +19,13 @@ public interface FloatConstantArray extends AbstractPrimitiveConstantArray<Float
     }
 
     void setFloat(int index, float value);
+
+    default float[] toFloatArray(IntFunction<float[]> generator) {
+        final int size = size();
+        final float[] array = generator.apply(size);
+        for (int i = 0; i < size; ++i) {
+            array[i] = getFloat(i);
+        }
+        return array;
+    }
 }

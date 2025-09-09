@@ -9,6 +9,7 @@ import java.io.Serializable;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Arrays;
 import java.util.function.BiFunction;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
@@ -238,6 +239,7 @@ public class Main {
             array.set(0, "hi");
             array.set(9, "ih");
             System.out.println("array[0] = " + array.get(0) + ", array[1] = " + array.get(1) + ", array[9] = " + array.get(9));
+            System.out.println(Arrays.toString(array.toArray(String[]::new)));
             System.out.println("array after");
         }
         {
@@ -247,6 +249,7 @@ public class Main {
             array.setInt(0, 123);
             array.setInt(9, 457);
             System.out.println("array[0] = " + array.getInt(0) + ", array[1] = " + array.getInt(1) + ", array[9] = " + array.getInt(9));
+            System.out.println(Arrays.toString(array.toIntArray(int[]::new)));
             System.out.println("primitive array after");
         }
         {
@@ -255,14 +258,16 @@ public class Main {
             array.set(0, "owo");
             array.set(9, "awa");
             System.out.println("array[0] = " + array.get(0) + ", array[1] = " + array.get(1) + ", array[9] = " + array.get(9));
+            System.out.println(Arrays.toString(array.toArray(String[]::new)));
             System.out.println("array base after");
         }
         {
             System.out.println("primitive array base start");
-            IntConstantArray array = (IntConstantArray) (Constant.factory.<Integer>ofPrimitiveArrayBase(10, int.class));
+            IntConstantArray array = (IntConstantArray) (Constant.factory.ofPrimitiveArrayBase(10, int.class));
             array.setInt(0, 123);
             array.setInt(9, 457);
             System.out.println("array[0] = " + array.getInt(0) + ", array[1] = " + array.getInt(1) + ", array[9] = " + array.getInt(9));
+            System.out.println(Arrays.toString(array.toIntArray(int[]::new)));
             System.out.println("primitive array base after");
         }
         {

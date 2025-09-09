@@ -4,6 +4,7 @@ import me.z7087.final2constant.ConstantArray;
 
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 public interface AbstractPrimitiveConstantArray<T> extends ConstantArray<T> {
@@ -90,4 +91,8 @@ public interface AbstractPrimitiveConstantArray<T> extends ConstantArray<T> {
         Objects.requireNonNull(value);
         throw new IllegalStateException("Not empty");
     }
+
+    @Deprecated
+    @Override
+    T[] toArray(IntFunction<T[]> generator);
 }

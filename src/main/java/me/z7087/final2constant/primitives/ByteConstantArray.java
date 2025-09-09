@@ -1,5 +1,7 @@
 package me.z7087.final2constant.primitives;
 
+import java.util.function.IntFunction;
+
 public interface ByteConstantArray extends AbstractPrimitiveConstantArray<Byte> {
 
     @Deprecated
@@ -17,4 +19,13 @@ public interface ByteConstantArray extends AbstractPrimitiveConstantArray<Byte> 
     }
 
     void setByte(int index, byte value);
+
+    default byte[] toByteArray(IntFunction<byte[]> generator) {
+        final int size = size();
+        final byte[] array = generator.apply(size);
+        for (int i = 0; i < size; ++i) {
+            array[i] = getByte(i);
+        }
+        return array;
+    }
 }

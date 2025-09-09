@@ -3,6 +3,7 @@ package me.z7087.final2constant;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 public interface ConstantArray<T> {
@@ -112,5 +113,14 @@ public interface ConstantArray<T> {
             }
         }
         throw new IllegalStateException("Not empty");
+    }
+
+    default T[] toArray(IntFunction<T[]> generator) {
+        final int size = size();
+        final T[] array = generator.apply(size);
+        for (int i = 0; i < size; ++i) {
+            array[i] = get(i);
+        }
+        return array;
     }
 }

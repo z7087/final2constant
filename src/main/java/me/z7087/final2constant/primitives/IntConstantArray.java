@@ -1,5 +1,7 @@
 package me.z7087.final2constant.primitives;
 
+import java.util.function.IntFunction;
+
 public interface IntConstantArray extends AbstractPrimitiveConstantArray<Integer> {
 
     @Deprecated
@@ -17,4 +19,13 @@ public interface IntConstantArray extends AbstractPrimitiveConstantArray<Integer
     }
 
     void setInt(int index, int value);
+
+    default int[] toIntArray(IntFunction<int[]> generator) {
+        final int size = size();
+        final int[] array = generator.apply(size);
+        for (int i = 0; i < size; ++i) {
+            array[i] = getInt(i);
+        }
+        return array;
+    }
 }
