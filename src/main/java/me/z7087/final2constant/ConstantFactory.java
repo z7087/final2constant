@@ -265,7 +265,7 @@ public abstract class ConstantFactory {
         }
     }
 
-    public <T> AbstractPrimitiveConstantArray<T> ofPrimitiveArrayBase(int size, Class<?> primitiveType) {
+    public <T> AbstractPrimitiveConstantArray<T> ofPrimitiveArrayBase(int size, Class<T> primitiveType) {
         if (size <= 0) {
             throw new IllegalArgumentException("array size too small: " + size);
         }
