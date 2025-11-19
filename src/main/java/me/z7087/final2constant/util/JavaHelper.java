@@ -1,10 +1,7 @@
 package me.z7087.final2constant.util;
 
 import java.io.Serializable;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.lang.invoke.SerializedLambda;
+import java.lang.invoke.*;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Objects;
@@ -84,8 +81,14 @@ public final class JavaHelper {
                 }
                 names[i] = serializedLambda.getImplMethodName();
                 final String implMethodSignature = serializedLambda.getImplMethodSignature();
-                if (!implMethodSignature.startsWith("()"))
+                if (!implMethodSignature.startsWith("()")) {
+                    if (serializedLambda.getImplMethodKind() == MethodHandleInfo.REF_invokeStatic
+                            && serializedLambda.getCapturedArgCount() == 1
+                    ) {
+                        throw new IllegalArgumentException("Method " + serializedLambda.getImplMethodName() + " is likely a lambda wrapper for the real getter, we don't know how to unwrap it");
+                    }
                     throw new IllegalArgumentException("Getter " + serializedLambda.getImplMethodName() + " cannot has >=1 parameters");
+                }
                 descriptors[i] = implMethodSignature.substring(2);
             }
             namesAndDescriptors[0] = names;
