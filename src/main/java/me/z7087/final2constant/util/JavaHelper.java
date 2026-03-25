@@ -65,7 +65,7 @@ public final class JavaHelper {
 
     public static String[][] _getNamesAndDescriptors(
             MethodHandles.Lookup lookup,
-            Serializable[] getterMethodReferences
+            Object[] getterMethodReferences
     ) throws Throwable {
         final String[][] namesAndDescriptors = new String[2][];
         {
@@ -73,7 +73,7 @@ public final class JavaHelper {
             final String[] names = new String[length];
             final String[] descriptors = new String[length];
             for (int i = 0; i < length; ++i) {
-                final Serializable getterRef = getterMethodReferences[i];
+                final Serializable getterRef = (Serializable) getterMethodReferences[i];
                 final SerializedLambda serializedLambda;
                 if (MHS_PRIVATE_LOOKUP_IN_MH != null) {
                     final Class<?> getterRefClass = getterRef.getClass();
