@@ -5,6 +5,8 @@ import java.lang.invoke.*;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class JavaHelper {
     private JavaHelper() {}
@@ -44,9 +46,26 @@ public final class JavaHelper {
         return version;
     }
 
-    public static String[][] getNamesAndDescriptors(
+
+    @SafeVarargs
+    public static <S extends Supplier<?> & Serializable> String[][] getNamesAndDescriptors(
             MethodHandles.Lookup lookup,
-            Serializable... getterMethodReferences
+            S... getterMethodReferences
+    ) throws Throwable {
+        return _getNamesAndDescriptors(lookup, getterMethodReferences);
+    }
+
+    @SafeVarargs
+    public static <T, S extends Function<T, ?> & Serializable> String[][] getNamesAndDescriptors(
+            MethodHandles.Lookup lookup,
+            S... getterMethodReferences
+    ) throws Throwable {
+        return _getNamesAndDescriptors(lookup, getterMethodReferences);
+    }
+
+    public static String[][] _getNamesAndDescriptors(
+            MethodHandles.Lookup lookup,
+            Serializable[] getterMethodReferences
     ) throws Throwable {
         final String[][] namesAndDescriptors = new String[2][];
         {
@@ -96,6 +115,8 @@ public final class JavaHelper {
         }
         return namesAndDescriptors;
     }
+
+
 
     /*
     @Deprecated

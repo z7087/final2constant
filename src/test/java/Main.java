@@ -124,7 +124,7 @@ public class Main {
                 final String[][] immutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(), // can be ourselves as we can access getter methods
                         (Function<TestRecordAbstract, Integer> & Serializable) TestRecordAbstract::int32,
-                        (Function<TestRecordAbstract, Long> & Serializable) TestRecordAbstract::int64
+                        (Function<TestRecordAbstract, ?> & Serializable) TestRecordAbstract::int64
                 );
                 final String[][] mutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(),
