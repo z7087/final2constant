@@ -1,14 +1,10 @@
 package me.z7087.final2constant;
 
 import me.z7087.final2constant.primitives.*;
-import me.z7087.final2constant.util.StringReuseHelper;
 import org.objectweb.asm.*;
 
 import java.lang.invoke.*;
 import java.lang.reflect.Method;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.function.Supplier;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -85,6 +81,8 @@ public abstract class ConstantFactory {
         }
     }
 
+    /*
+    @Deprecated
     public <T> T ofEmptyInterfaceImplInstance(MethodHandles.Lookup hostClass,
                                               Class<T> interfaceClass
     ) {
@@ -106,6 +104,7 @@ public abstract class ConstantFactory {
         }
     }
 
+    @Deprecated
     public <T> T ofEmptyAbstractImplInstance(MethodHandles.Lookup hostClass,
                                              Class<T> abstractClass
     ) {
@@ -126,6 +125,7 @@ public abstract class ConstantFactory {
             throw new RuntimeException(e);
         }
     }
+     */
 
     public <T> DynamicConstant<T> ofBase(T value) {
         try {
@@ -286,6 +286,7 @@ public abstract class ConstantFactory {
     }
 
     // super slow for unknown reason
+    /*
     @Deprecated
     public <T, E, R, TE extends Throwable> T ofEventBus(MethodHandles.Lookup hostClass,
                                                                  Class<T> interfaceEventBusClass,
@@ -318,7 +319,7 @@ public abstract class ConstantFactory {
                     )
             );
             MethodType constructorMT = MethodType.methodType(void.class, MethodHandle[].class);
-            ArrayList<Object> constructorArgs = new ArrayList<>();
+            java.util.ArrayList<Object> constructorArgs = new java.util.ArrayList<>();
             {
                 final int handlerCount = handlers.length;
                 MethodHandle[] newHandlers = new MethodHandle[handlerCount];
@@ -355,6 +356,7 @@ public abstract class ConstantFactory {
             throw new RuntimeException(e);
         }
     }
+     */
 
     protected static byte[] generateConstantImpl(String className) {
         // no lazy so prob a final field is enough
@@ -1232,6 +1234,7 @@ public abstract class ConstantFactory {
         }
     }
 
+    /*
     protected static byte[] generateEmptyImpl(String className,
                                               boolean useInterface,
                                               Class<?> abstractOrInterfaceClass
@@ -1266,6 +1269,7 @@ public abstract class ConstantFactory {
         }
         return cwEmptyImpl.toByteArray();
     }
+     */
 
     protected static byte[] generateConstantBaseImpl(String className) {
         final ClassWriter cwConstantBaseImpl = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -2392,6 +2396,7 @@ public abstract class ConstantFactory {
         return cwPrimitiveArrayBaseImpl.toByteArray();
     }
 
+    /*
     private static final int FrecInlineSize = 325;
     private static final int FrecInlineSize2 = 175;
     private static final int MaxInlineSize = 35;
@@ -3097,6 +3102,7 @@ public abstract class ConstantFactory {
         }
         throw new AssertionError();
     }
+     */
 
     private static String getMergedInitDesc(String[] recordArgMethodReturnTypes) {
         int capacity = 3;

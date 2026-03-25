@@ -10,10 +10,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.Arrays;
-import java.util.function.BiFunction;
-import java.util.function.IntSupplier;
-import java.util.function.LongSupplier;
-import java.util.function.Supplier;
+import java.util.function.*;
 
 public class Main {
     private static final boolean TEST_FINAL_SETTER_IN_RECORD = true;
@@ -70,18 +67,14 @@ public class Main {
             System.out.println("record interface start");
             final String[] immutableNames, immutableDescriptors, mutableNames, mutableDescriptors;
             try {
-                TestRecordInterface triEmptyImpl = Constant.factory.ofEmptyInterfaceImplInstance(
-                        MethodHandles.lookup(),
-                        TestRecordInterface.class
-                );
                 final String[][] immutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(),
-                        (IntSupplier & Serializable) triEmptyImpl::int32,
-                        (LongSupplier & Serializable) triEmptyImpl::int64
+                        (Function<TestRecordInterface, Integer> & Serializable) TestRecordInterface::int32,
+                        (Function<TestRecordInterface, Long> & Serializable) TestRecordInterface::int64
                 );
                 final String[][] mutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(),
-                        (Supplier<TestRecordInterface> & Serializable) triEmptyImpl::tri
+                        (Function<TestRecordInterface, TestRecordInterface> & Serializable) TestRecordInterface::tri
                 );
                 immutableNames = immutableNamesAndDescriptors[0];
                 immutableDescriptors = immutableNamesAndDescriptors[1];
@@ -121,19 +114,21 @@ public class Main {
             System.out.println("record abstract start");
             final String[] immutableNames, immutableDescriptors, mutableNames, mutableDescriptors;
             try {
+                /*
                 TestRecordAbstract traEmptyImpl = Constant.factory.ofEmptyAbstractImplInstance(
                         TestRecordAbstract.getLookup(), // MUST be the class itself's lookup if the constructor is private
                         // if Main and TRA in the same nest, this is not needed, but the class is compiled with target compatibility java8 that has no nest
                         TestRecordAbstract.class
                 );
+                 */
                 final String[][] immutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(), // can be ourselves as we can access getter methods
-                        (IntSupplier & Serializable) traEmptyImpl::int32,
-                        (LongSupplier & Serializable) traEmptyImpl::int64
+                        (Function<TestRecordAbstract, Integer> & Serializable) TestRecordAbstract::int32,
+                        (Function<TestRecordAbstract, Long> & Serializable) TestRecordAbstract::int64
                 );
                 final String[][] mutableNamesAndDescriptors = JavaHelper.getNamesAndDescriptors(
                         MethodHandles.lookup(),
-                        (Supplier<TestRecordAbstract> & Serializable) traEmptyImpl::tra
+                        (Function<TestRecordAbstract, TestRecordAbstract> & Serializable) TestRecordAbstract::tra
                 );
                 immutableNames = immutableNamesAndDescriptors[0];
                 immutableDescriptors = immutableNamesAndDescriptors[1];
@@ -270,6 +265,7 @@ public class Main {
             System.out.println(Arrays.toString(array.toIntArray(int[]::new)));
             System.out.println("primitive array base after");
         }
+        /*
         {
             System.out.println("eventbus start");
             final int handlerCount = 1000;
@@ -301,6 +297,7 @@ public class Main {
             }
             System.out.println("eventbus after");
         }
+         */
         System.out.println("End");
     }
 

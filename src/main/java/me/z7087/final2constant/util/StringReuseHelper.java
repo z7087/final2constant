@@ -1,8 +1,10 @@
 package me.z7087.final2constant.util;
 
+/*
 import java.util.HashSet;
 import java.util.Iterator;
 
+@Deprecated
 public final class StringReuseHelper {
     private final HashSet<String> used = new HashSet<>();
     private final HashSet<String> unused = new HashSet<>();
@@ -87,3 +89,4 @@ public final class StringReuseHelper {
         throw new AssertionError("GeneratedNameCount overflowed!");
     }
 }
+ */

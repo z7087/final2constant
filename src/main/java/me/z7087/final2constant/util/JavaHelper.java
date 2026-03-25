@@ -97,6 +97,7 @@ public final class JavaHelper {
         return namesAndDescriptors;
     }
 
+    /*
     @Deprecated
     public static MethodHandle eventBusMH(Class<?> eventClass,
                                           Class<?> resultClass,
@@ -186,4 +187,5 @@ public final class JavaHelper {
         }
         return finalHandlerMH;
     }
+     */
 }
